@@ -1,5 +1,3 @@
-#include "UnTextureNVTT.h"
-
 #include "Core.h"
 #include "UnCore.h"
 #include "UnObject.h"
@@ -394,28 +392,17 @@ byte *CTextureData::Decompress(int MipLevel)
 		return dst;
 	}
 
+	const detexTextureFileInfo *info = detexLookupDDSFileInfo((const char*)&fourCC, 0, 0, 0, 0, 0, 0, 0);
+	assert(info);
+	detexTexture tex;
+	tex.format = info->texture_format;
+	tex.data = const_cast<byte*>(Data);	// will be used as 'const' anyway
+	tex.width = USize;
+	tex.height = VSize;
+	tex.width_in_blocks = USize / 4;
+	tex.height_in_blocks = VSize / 4;
 	PROFILE_DDS(appResetProfiler());
-
-	nv::DDSHeader header;
-	nv::Image image;
-	header.setFourCC(fourCC & 0xFF, (fourCC >> 8) & 0xFF, (fourCC >> 16) & 0xFF, (fourCC >> 24) & 0xFF);
-	header.setWidth(USize);
-	header.setHeight(VSize);
-	header.setNormalFlag(Format == TPF_DXT5N || Format == TPF_BC5);	// flag to restore normalmap from 2 colors
-	DecodeDDS(Data, USize, VSize, header, image);
-
-	byte *s = (byte*)image.pixels();
-	byte *d = dst;
-
-	for (int i = 0; i < USize * VSize; i++, s += 4, d += 4)
-	{
-		// BGRA -> RGBA
-		d[0] = s[2];
-		d[1] = s[1];
-		d[2] = s[0];
-		d[3] = s[3];
-	}
-
+	detexDecompressTextureLinear(&tex, dst, DETEX_PIXEL_FORMAT_RGBA8);
 	PROFILE_DDS(appPrintProfiler());
 
 	if (Format == TPF_DXT1)
