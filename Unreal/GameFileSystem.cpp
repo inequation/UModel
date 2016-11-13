@@ -789,3 +789,18 @@ void appEnumGameFilesWorker(bool (*Callback)(const CGameFileInfo*, void*), const
 		if (!Callback(info, Param)) break;
 	}
 }
+
+void EnumGameFileExtensions(EnumGameFileExtensionsCallback_t Callback, bool PackagesOnly, void *Param)
+{
+	for (int i = 0; i < ARRAY_COUNT(PackageExtensions); ++i)
+	{
+		if (!Callback(PackageExtensions[i], Param)) return;
+	}
+	if (!PackagesOnly)
+	{
+		for (int i = 0; i < ARRAY_COUNT(KnownExtensions); ++i)
+		{
+			if (!Callback(KnownExtensions[i], Param)) return;
+		}
+	}
+}

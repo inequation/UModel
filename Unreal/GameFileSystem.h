@@ -20,5 +20,7 @@ public:
 	virtual int GetFileSize(const char* name) = 0;
 };
 
+typedef bool (*EnumGameFileExtensionsCallback_t)(const char*, void*);
+void EnumGameFileExtensions(EnumGameFileExtensionsCallback_t, bool PackagesOnly = true, void *Param = NULL);
 
 #endif // __GAME_FILE_SYSTEM_H__
