@@ -656,6 +656,9 @@ public:
 	bool					CanStripNormalsAndTangents;
 #endif // BATMAN
 
+	float					LODDistanceRatio;
+	float					LODMaxRange;
+
 	CStaticMesh				*ConvertedMesh;
 
 	BEGIN_PROP_TABLE
@@ -671,7 +674,8 @@ public:
 		PROP_BOOL(CanCompressPositions)
 		PROP_BOOL(CanStripNormalsAndTangents)
 #endif // BATMAN
-		PROP_DROP(LODDistanceRatio)
+		PROP_FLOAT(LODDistanceRatio)
+		PROP_FLOAT(LODMaxRange)
 		PROP_DROP(LightMapResolution)
 		PROP_DROP(LightMapCoordinateIndex)
 		PROP_DROP(ContentTags)

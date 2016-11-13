@@ -2266,6 +2266,8 @@ void USkeletalMesh3::PostLoad()
 // It's useful to declare TArray<> structures as forward declarations in header file.
 UStaticMesh3::UStaticMesh3()
 :	ConvertedMesh(NULL)
+,	LODDistanceRatio(1.0)
+,	LODMaxRange(2000)
 {}
 
 UStaticMesh3::~UStaticMesh3()
