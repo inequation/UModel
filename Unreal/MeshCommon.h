@@ -78,6 +78,12 @@ struct CMeshUVFloat
 };
 
 
+struct CColor
+{
+	byte					R, G, B, A;
+};
+
+
 struct CPackedNormal
 {
 	uint32					Data;
@@ -168,10 +174,12 @@ struct CBaseMeshLod
 	int						NumTexCoords;
 	bool					HasNormals;
 	bool					HasTangents;
+	bool					HasColor;
 	// geometry
 	TArray<CMeshSection>	Sections;
 	int						NumVerts;
 	CMeshUVFloat*			ExtraUV[MAX_MESH_UV_SETS-1];
+	CColor*					Color;
 	CIndexBuffer			Indices;
 
 	~CBaseMeshLod()
@@ -184,6 +192,11 @@ struct CBaseMeshLod
 	{
 		for (int i = 0; i < NumTexCoords-1; i++)
 			ExtraUV[i] = (CMeshUVFloat*)appMalloc(sizeof(CMeshUVFloat) * NumVerts);
+	}
+
+	void AllocateColor()
+	{
+		Color = (CColor*)appMalloc(sizeof(CColor) * NumVerts);
 	}
 
 #if RENDERING

@@ -43,6 +43,7 @@ struct CStaticMeshLod : public CBaseMeshLod
 		Verts    = (CStaticMeshVertex*)appMalloc(sizeof(CStaticMeshVertex) * Count, 16);		// alignment for SSE
 		NumVerts = Count;
 		AllocateUVBuffers();
+		AllocateColor();
 		unguard;
 	}
 
