@@ -3761,6 +3761,7 @@ void UStaticMesh3::ConvertMesh()
 		Lod->NumTexCoords = NumTexCoords;
 		Lod->HasNormals   = true;
 		Lod->HasTangents  = (ArVer >= 364);			//?? check; FStaticMeshUVStream3 is used since this version
+		Lod->HasColor     = SrcLod.ColorStream.NumVerts > 0 || SrcLod.ColorStream2.NumVerts > 0;
 #if BATMAN
 		if ((ArGame == GAME_Batman2 || ArGame == GAME_Batman3) && CanStripNormalsAndTangents)
 			Lod->HasNormals = Lod->HasTangents = false;
@@ -3796,7 +3797,15 @@ void UStaticMesh3::ConvertMesh()
 				fUV++;
 				Lod->ExtraUV[TexCoordIndex-1][i] = *CVT(fUV);
 			}
-			//!! also has ColorStream
+			if (Lod->HasColor)
+			{
+				int32 Color = SrcLod.ColorStream.NumVerts > i
+					? SrcLod.ColorStream.Colors[i]
+					: (SrcLod.ColorStream2.NumVerts > i
+						? SrcLod.ColorStream2.Colors[i]
+						: 0);
+				Lod->Color[i] = CVT(Color);
+			}
 		}
 
 		// indices

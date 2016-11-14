@@ -37,6 +37,8 @@ CONVERTER(FVector2D,       CMeshUVFloat   )
 CONVERTER(TArray<FVector>, TArray<CVec3>  )
 CONVERTER(TArray<FQuat>,   TArray<CQuat>  )
 CONVERTER(TArray<FCoords>, TArray<CCoords>)
+CONVERTER(FColor,          CColor         )
+CONVERTER(int32,           CColor         )
 
 #undef CONVERTER
 
