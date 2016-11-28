@@ -7,6 +7,7 @@
 
 struct FMeshUVFloat;
 struct CMeshUVFloat;
+struct CColor;
 
 
 #define CONVERTER(From, To)					\
