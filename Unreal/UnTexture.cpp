@@ -9,6 +9,7 @@
 #endif
 
 #include <detex.h>
+#include <file-info.h>
 
 #if 0
 #	define PROFILE_DDS(cmd)		cmd
