@@ -210,6 +210,11 @@ void DumpProps(FArchive &Ar, const UStruct *Struct)
 	unguardf("Struct=%s", Struct->Name);
 }
 
+void DumpDefaults(FArchive& Ar, const UStruct* Struct)
+{
+	// TODO
+}
+
 void DumpClass(const UClass *Class)
 {
 	//!! NOTE: UProperty going in correct format, other UField data in reverse format
