@@ -199,7 +199,7 @@ public:
 			Script.Add(ScriptSize);
 			Ar.Serialize(&Script[0], ScriptSize);
 		}
-//		Ar.Seek(Ar.Tell() + ScriptSize);	// skip scripts
+		Ar.Seek(Ar.Tell() + ScriptSize);	// skip scripts
 //		//?? following code: loop of UStruct::SerializeExpr(int &,FArchive &)
 //		DROP_REMAINING_DATA(Ar);
 		unguard;
@@ -245,10 +245,15 @@ class UClass : public UState
 {
 	DECLARE_CLASS(UClass, UState);
 public:
+	int32			ClassFlags;
+
 	virtual void Serialize(FArchive &Ar)
 	{
 		guard(UClass::Serialize);
 		Super::Serialize(Ar);
+
+		Ar << ClassFlags;
+
 		//!! UStruct will drop remaining data
 		DROP_REMAINING_DATA(Ar);
 		unguard;
