@@ -199,7 +199,7 @@ public:
 			Script.Add(ScriptSize);
 			Ar.Serialize(&Script[0], ScriptSize);
 		}
-		Ar.Seek(Ar.Tell() + ScriptSize);	// skip scripts
+//		Ar.Seek(Ar.Tell() + ScriptSize);	// skip scripts
 //		//?? following code: loop of UStruct::SerializeExpr(int &,FArchive &)
 //		DROP_REMAINING_DATA(Ar);
 		unguard;
@@ -236,6 +236,11 @@ public:
 		guard(UState::Serialize);
 		Super::Serialize(Ar);
 		Ar << ProbeMask << IgnoreMask << StateFlags << LabelTableOffset;
+		{
+			// TODO: Is this useful?
+			TMap<FName, UObject*> FunctionMap;
+			Ar << FunctionMap;
+		}
 		unguard;
 	}
 };
@@ -246,6 +251,10 @@ class UClass : public UState
 	DECLARE_CLASS(UClass, UState);
 public:
 	int32			ClassFlags;
+	UClass*			ClassWithin;
+	FName			ConfigName;
+
+	UObject*		ClassDefaultObject;
 
 	virtual void Serialize(FArchive &Ar)
 	{
@@ -253,9 +262,63 @@ public:
 		Super::Serialize(Ar);
 
 		Ar << ClassFlags;
+		if (Ar.ArVer < 547)
+		{
+			uint8 Dummy;
+			Ar << Dummy;
+		}
+		Ar << ClassWithin << ConfigName;
 
-		//!! UStruct will drop remaining data
-		DROP_REMAINING_DATA(Ar);
+		// We only care about the default properties by at this point, so skip all the way over to them, if possible.
+		if (Ar.ArVer >= 322)
+		{
+			Ar.Seek(Ar.GetStopper() - 4);
+			Ar << ClassDefaultObject;
+		}
+#if UNREAL3
+		else if (Ar.Engine() >= EGame::GAME_UE3)
+		{
+			bool bOldHideCategoriesOrder = Ar.ArVer < 539
+#if TERA
+				|| Ar.Game == EGame::GAME_Tera
+#endif
+				;
+			TArray<FName> HideCategories;
+			if (bOldHideCategoriesOrder)
+			{
+				Ar << HideCategories;
+			}
+
+			{
+				TMap<FName, UObject*> ComponentNameToDefaultObject;
+				Ar << ComponentNameToDefaultObject;
+			}
+
+			if (Ar.ArVer >= 369)
+			{
+				TMap<UClass*, class UObject*> Interfaces;
+				Ar << Interfaces;
+			}
+
+			if (Ar.ArVer >= 603
+#if TERA
+				&& Ar.Game != EGame::GAME_Tera
+#endif
+				)
+			{
+				TArray<FName> DontSortCategories;
+				Ar << DontSortCategories;
+			}
+
+			if (!bOldHideCategoriesOrder)
+			{
+				Ar << HideCategories;
+			}
+
+			// FIXME: A bunch of other useless stuff to serialize from here.
+			DROP_REMAINING_DATA(Ar);
+		}
+#endif
 		unguard;
 	}
 };
