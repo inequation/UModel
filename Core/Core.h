@@ -28,6 +28,8 @@
 #	include <SDL2/SDL.h>			//?? move outside (here for SDL_GetTicks() only?)
 #endif
 
+#include <new>
+
 #define VECTOR_ARG(name)		name[0],name[1],name[2]
 #define QUAT_ARG(name)			name.x,name.y,name.z,name.w
 #define ARRAY_ARG(array)		array, sizeof(array)/sizeof(array[0])
@@ -336,11 +338,13 @@ FORCEINLINE void operator delete[](void* ptr)
 	appFree(ptr);
 }
 
+#if !_MSC_VER || _MSC_VER < 1900
 // inplace new
 FORCEINLINE void* operator new(size_t /*size*/, void* ptr)
 {
 	return ptr;
 }
+#endif
 
 
 #define DEFAULT_ALIGNMENT		8
