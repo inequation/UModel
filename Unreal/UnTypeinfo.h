@@ -141,6 +141,23 @@ public:
 #endif
 	TArray<byte>	Script;
 
+#if GENERATE_REFLECTION_TYPES
+protected:
+	CTypeInfo*		DataTypeInfo;	// generated after serialization in Link()
+public:
+
+	FORCEINLINE const CTypeInfo* GetDataTypeInfo() { return DataTypeInfo; }
+#endif
+
+	virtual ~UStruct()
+	{
+#if GENERATE_REFLECTION_TYPES
+		delete [] DataTypeInfo->Props;
+		delete DataTypeInfo;
+		DataTypeInfo = nullptr;
+#endif
+	}
+
 	virtual void Serialize(FArchive &Ar)
 	{
 		guard(UStruct::Serialize);
@@ -204,6 +221,17 @@ public:
 //		DROP_REMAINING_DATA(Ar);
 		unguard;
 	}
+
+#if GENERATE_REFLECTION_TYPES
+	virtual void PostLoad()
+	{
+		Super::PostLoad();
+		Link();
+	}
+	
+	void Link();
+	virtual const byte* GetDefaults(size_t& OutSize) { assert("unimplemented GetDefaults()"); return nullptr; }
+#endif
 };
 
 #if UNREAL3
@@ -212,10 +240,61 @@ class UScriptStruct : public UStruct
 {
 	DECLARE_CLASS(UScriptStruct, UStruct);
 public:
+	uint32 StructFlags;
+
+#if GENERATE_REFLECTION_TYPES
+	TArray<byte> StructDefaults;
+private:
+	int64 DeferredLoadingPos;
+
+	virtual void PostLoad()
+	{
+		Super::PostLoad();
+		size_t BufferSize = (size_t)Align(DataTypeInfo->SizeOf, DEFAULT_ALIGNMENT);
+		StructDefaults.Empty(BufferSize);
+		StructDefaults.AddZeroed(BufferSize);
+#if 1
+		UnPackage *Package = Package;
+		Package->Loader = nullptr;
+		Package->SetupReader(PackageIndex);
+		Package->Seek64(DeferredLoadingPos);
+		DataTypeInfo->SerializeProps(*Package, StructDefaults.GetData());
+		Package->CloseReader();
+#else
+		FMemReader MemAr(TemporaryDefaults.GetData(), TemporaryDefaults.Num());
+		// FIXME: Why are all the tags invalid?s
+		DataTypeInfo->SerializeProps(MemAr, StructDefaults.GetData());
+		TemporaryDefaults.Empty();
+#endif
+	}
+
+	virtual const byte* GetDefaults(size_t& OutSize) { OutSize = StructDefaults.Num(); return StructDefaults.GetData(); }
+#endif
+
 	virtual void Serialize(FArchive &Ar)
 	{
 		Super::Serialize(Ar);
-		// has properties here (struct defaults?)
+		Ar << StructFlags;
+		
+#if GENERATE_REFLECTION_TYPES
+		// Actual serialization needs to be postponed to until all fields have been loaded. Otherwise DataTypeInfo can't be property populated.
+		if (Ar.IsLoading)
+		{
+#if 1
+			DeferredLoadingPos = Ar.Tell64();
+#else
+			size_t SerializedDefaultsSize = Ar.GetStopper() - Ar.Tell();
+			TemporaryDefaults.Empty(SerializedDefaultsSize);
+			TemporaryDefaults.AddUninitialized(SerializedDefaultsSize);
+			Ar.Serialize(TemporaryDefaults.GetData(), SerializedDefaultsSize);
+#endif
+		}
+		else
+		{
+			size_t BufferSize = (size_t)Align(DataTypeInfo->SizeOf, DEFAULT_ALIGNMENT);
+			assert(StructDefaults.Num() == BufferSize);
+		}
+#endif
 		DROP_REMAINING_DATA(Ar);
 	}
 };
@@ -250,7 +329,7 @@ class UClass : public UState
 {
 	DECLARE_CLASS(UClass, UState);
 public:
-	int32			ClassFlags;
+	uint32			ClassFlags;
 	UClass*			ClassWithin;
 	FName			ConfigName;
 
@@ -321,6 +400,8 @@ public:
 #endif
 		unguard;
 	}
+
+	virtual const byte* GetDefaults(size_t& OutSize) { OutSize = ClassDefaultObject->GetTypeinfo()->SizeOf; return (byte*)ClassDefaultObject; }
 };
 
 
@@ -408,6 +489,8 @@ public:
 //		appPrintf("... prop %s [%d] %X:%X (%s)\n", Name, ArrayDim, PropertyFlags, PropertyFlags2, *Category);
 		unguard;
 	}
+
+	virtual size_t GetElementSize() { assert(!"Unimplemented GetElementSize()"); return 0; };
 };
 
 
@@ -424,6 +507,8 @@ public:
 		Ar << Enum;
 		unguard;
 	}
+
+	virtual size_t GetElementSize() override { return 1; }
 };
 
 
@@ -437,6 +522,8 @@ public:
 		Super::Serialize(Ar);
 		unguard;
 	} */
+
+	virtual size_t GetElementSize() override { return 4; }
 };
 
 
@@ -450,6 +537,8 @@ public:
 		Super::Serialize(Ar);
 		unguard;
 	}
+
+	virtual size_t GetElementSize() override { return 1; }
 };
 
 
@@ -463,6 +552,8 @@ public:
 		Super::Serialize(Ar);
 		unguard;
 	} */
+
+	virtual size_t GetElementSize() override { return 4; }
 };
 
 
@@ -479,6 +570,8 @@ public:
 		Ar << PropertyClass;
 		unguard;
 	}
+
+	virtual size_t GetElementSize() override { return sizeof(UObject*); }
 };
 
 
@@ -495,6 +588,8 @@ public:
 		Ar << MetaClass;
 		unguard;
 	}
+
+	virtual size_t GetElementSize() override { return sizeof(UClass*); }
 };
 
 
@@ -508,6 +603,8 @@ public:
 		Super::Serialize(Ar);
 		unguard;
 	} */
+
+	virtual size_t GetElementSize() override { return sizeof(char*); }
 };
 
 
@@ -521,6 +618,8 @@ public:
 		Super::Serialize(Ar);
 		unguard;
 	} */
+
+	virtual size_t GetElementSize() override { return sizeof(FString); }
 };
 
 
@@ -537,6 +636,8 @@ public:
 		Ar << Inner;
 		unguard;
 	}
+
+	virtual size_t GetElementSize() override { return sizeof(FArray); }
 };
 
 
@@ -554,6 +655,8 @@ public:
 		Ar << Key << Value;
 		unguard;
 	}
+
+	virtual size_t GetElementSize() override { return (Key ? Key->GetElementSize() : 0) + (Value ? Value->GetElementSize() : 0); }
 };
 
 
@@ -571,6 +674,10 @@ appPrintf("Struct(%s) rest: %X\n", Name, Ar.GetStopper() - Ar.Tell());	//!!!
 		Ar << Struct;
 		unguard;
 	}
+
+#if GENERATE_REFLECTION_TYPES
+	virtual size_t GetElementSize() override { return Struct ? Struct->GetDataTypeInfo()->SizeOf : 0; }
+#endif
 };
 
 
@@ -589,6 +696,8 @@ public:
 		Ar << SomeName;
 		unguard;
 	}
+
+	virtual size_t GetElementSize() override { return sizeof(UObject*); }
 };
 
 #endif // UNREAL3
@@ -609,6 +718,9 @@ public:
 		Ar << TypeName;
 		unguard;
 	}
+
+	// FIXME
+	virtual size_t GetElementSize() override { return 0; }
 };
 
 #endif // MKVSDC
@@ -618,6 +730,8 @@ public:
 class UPointerProperty : public UProperty
 {
 	DECLARE_CLASS(UPointerProperty, UProperty);
+
+	virtual size_t GetElementSize() override { return sizeof(void*); }
 };
 
 

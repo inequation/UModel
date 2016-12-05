@@ -4,6 +4,8 @@ R   = ../..
 PRJ = typeinfo
 !include ../../common.project
 
+OPTIONS += -D RENDERING=0 -D GENERATE_REFLECTION_TYPES=1
+
 sources(MAIN) = {
 	Main.cpp
 	$R/Unreal/UnCore.cpp
