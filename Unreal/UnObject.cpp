@@ -2,6 +2,7 @@
 #include "UnCore.h"
 #include "UnObject.h"
 #include "UnPackage.h"
+#include "UnTypeinfo.h"
 
 
 //#define DEBUG_PROPS				1
@@ -1315,7 +1316,12 @@ void CTypeInfo::SerializeProps(FArchive &Ar, void *ObjectData) const
 	RTTI support
 -----------------------------------------------------------------------------*/
 
-#define MAX_CLASSES		256
+#if GENERATE_REFLECTION_TYPES
+	// Reflection will probably generate a huge number of types for all the structs and classes.
+	#define MAX_CLASSES		2048
+#else
+	#define MAX_CLASSES		256
+#endif
 
 static CClassInfo GClasses[MAX_CLASSES];
 static int        GClassCount = 0;
@@ -1767,6 +1773,108 @@ int NameToEnum(const char *EnumName, const char *Value)
 			return V.value;
 	}
 	return ENUM_UNKNOWN;				// no such value
+}
+
+void UStruct::Link()
+{
+#if GENERATE_REFLECTION_TYPES
+	UStruct* SuperStruct = SuperField && SuperField->IsA("Struct") ? (UStruct*)SuperField : nullptr;
+	const CTypeInfo* SuperTypeInfo = SuperStruct ? SuperStruct->DataTypeInfo : nullptr;
+	if (SuperStruct && !SuperTypeInfo)
+	{
+		SuperStruct->Link();
+		SuperTypeInfo = SuperStruct->DataTypeInfo;
+	}
+	size_t PropertyCount = 0;
+	for (UField* Field = Children; Field; Field = Field->Next)
+	{
+		if (Field->IsA("Property"))
+		{
+			UProperty* Prop = (UProperty*)Field;
+			++PropertyCount;
+		}
+	}
+
+	DataTypeInfo = new CTypeInfo(Name, SuperTypeInfo, 0, new CPropInfo[PropertyCount], PropertyCount, [this](void* Mem)
+	{
+		UStruct* SuperStruct = SuperField && SuperField->IsA("Struct") ? (UStruct*)SuperField : nullptr;
+		size_t DefaultsSize = 0;
+		const byte* SuperDefaults = SuperStruct ? SuperStruct->GetDefaults(DefaultsSize) : nullptr;
+		if (SuperDefaults && DefaultsSize)
+		{
+			memcpy(Mem, SuperDefaults, DefaultsSize);
+		}
+	});
+	int PropIndex = 0;
+	for (UField* Field = Children; Field; Field = Field->Next)
+	{
+		if (Field->IsA("Property"))
+		{
+			UProperty* Prop = (UProperty*)Field;
+			const CTypeInfo* PropTypeInfo = Field->GetTypeinfo();
+			CPropInfo& PropInfo = const_cast<CPropInfo&>(DataTypeInfo->Props[PropIndex]);
+			PropInfo.Count = max(1, Prop->ArrayDim);
+			PropInfo.Name = Prop->Name;
+			PropInfo.Offset = DataTypeInfo->SizeOf;
+			if (Prop->IsA("ObjectProperty"))
+			{
+				UObjectProperty* ObjProp = (UObjectProperty*)Prop;
+				PropInfo.TypeName = "UObject*";
+			}
+			else if (Prop->IsA("StructProperty"))
+			{
+				UStructProperty* StructProp = (UStructProperty*)Prop;
+				if (StructProp && StructProp->Struct && !StructProp->Struct->DataTypeInfo)
+				{
+					StructProp->Struct->Link();
+				}
+				PropInfo.TypeName = StructProp->Struct ? StructProp->Struct->Name : "??";
+			}
+			else if (Prop->IsA("IntProperty"))
+			{
+				PropInfo.TypeName = "int";
+			}
+			else if (Prop->IsA("BoolProperty"))
+			{
+				PropInfo.TypeName = "bool";
+			}
+			else if (Prop->IsA("ByteProperty"))
+			{
+				PropInfo.TypeName = "byte";
+			}
+			else if (Prop->IsA("FloatProperty"))
+			{
+				PropInfo.TypeName = "float";
+			}
+			else if (Prop->IsA("NameProperty"))
+			{
+				PropInfo.TypeName = "FName";
+			}
+			else if (Prop->IsA("StrProperty"))
+			{
+				PropInfo.TypeName = "FString";
+			}
+			else
+			{
+				PropInfo.TypeName = Field->GetClassName();
+			}
+			DataTypeInfo->SizeOf += (size_t)Align(max(1, Prop->ArrayDim) * Prop->GetElementSize(), DEFAULT_ALIGNMENT);
+			++PropIndex;
+		}
+	}
+
+	// Natively defined classes take precedence over reflected script types.
+	// Make reflected types stand out by offsetting their prefix letter by one.
+	FName NativeTypeName;
+	NativeTypeName = this->IsA("Actor") ? va("B%s", Name) : (this->IsA("Class") ? va("V%s", Name) : va("G%s", Name));
+	if (!FindClassType(NativeTypeName, true))
+	{
+		CClassInfo Info;
+		Info.Name = NativeTypeName;
+		Info.TypeInfo = [this]() { return DataTypeInfo; };
+		RegisterClasses(&Info, 1);
+	}
+#endif
 }
 
 
