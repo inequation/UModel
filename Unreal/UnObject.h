@@ -1,6 +1,7 @@
 #ifndef __UNOBJECT_H__
 #define __UNOBJECT_H__
 
+#include <functional>
 
 /*-----------------------------------------------------------------------------
 	Simple RTTI
@@ -77,10 +78,10 @@ struct CTypeInfo
 	int				SizeOf;
 	const CPropInfo *Props;
 	int				NumProps;
-	void (*Constructor)(void*);
+	std::function<void(void*)> Constructor;
 	// methods
 	FORCEINLINE CTypeInfo(const char *AName, const CTypeInfo *AParent, int DataSize,
-					 const CPropInfo *AProps, int PropCount, void (*AConstructor)(void*))
+					 const CPropInfo *AProps, int PropCount, std::function<void(void*)> AConstructor)
 	:	Name(AName)
 	,	Parent(AParent)
 	,	SizeOf(DataSize)
@@ -184,7 +185,7 @@ static const CTypeInfo* Class##_StaticGetTypeinfo() \
 struct CClassInfo
 {
 	const char		*Name;
-	const CTypeInfo* (*TypeInfo)();
+	std::function<const CTypeInfo*()> TypeInfo;
 };
 
 
