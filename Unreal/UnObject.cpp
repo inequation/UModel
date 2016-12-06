@@ -1852,16 +1852,7 @@ void UStruct::Link()
 		}
 	}
 
-	DataTypeInfo = new CTypeInfo(Name, SuperTypeInfo, 0, new CPropInfo[PropertyCount], PropertyCount, [this](void* Mem)
-	{
-		UStruct* SuperStruct = SuperField && SuperField->IsA("Struct") ? (UStruct*)SuperField : nullptr;
-		size_t DefaultsSize = 0;
-		const byte* SuperDefaults = SuperStruct ? SuperStruct->GetDefaults(DefaultsSize) : nullptr;
-		if (SuperDefaults && DefaultsSize)
-		{
-			memcpy(Mem, SuperDefaults, DefaultsSize);
-		}
-	});
+	DataTypeInfo = new CTypeInfo(Name, SuperTypeInfo, 0, new CPropInfo[PropertyCount], PropertyCount, this);
 	int PropIndex = 0;
 	for (UField* Field = Children; Field; Field = Field->Next)
 	{
@@ -1956,12 +1947,42 @@ void UStruct::Link()
 	{
 		CClassInfo Info;
 		Info.Name = NativeTypeName;
-		Info.TypeInfo = [this]() { return DataTypeInfo; };
+		Info.TypeInfo = this;
 		RegisterClasses(&Info, 1);
 	}
 	
 }
 #endif
+
+
+void CTypeConstructor::operator()(void* Mem) const
+{
+	if (bIsRawFunc)
+	{
+		Ptr.RawFunc(Mem);
+	}
+	else
+	{
+		Ptr.Struct->ConstructData(Mem);
+	}
+}
+
+
+const CTypeInfo* CTypeInfoGetter::operator()() const
+{
+	if (bIsRawFunc)
+	{
+		return Ptr.RawFunc();
+	}
+	else
+	{
+#if GENERATE_REFLECTION_TYPES
+		return Ptr.Struct->GetDataTypeInfo();
+#else
+		assert(!"CTypeInfoGetter should never be set to struct data type info fetching when reflection type generation is disabled");
+#endif
+	}
+}
 
 
 /*-----------------------------------------------------------------------------
