@@ -1823,9 +1823,18 @@ int NameToEnum(const char *EnumName, const char *Value)
 	return ENUM_UNKNOWN;				// no such value
 }
 
+#if GENERATE_REFLECTION_TYPES
+static FName BuildNativeTypeNameForScriptType(const UObject* Object)
+{
+	FName NativeName;
+	bool bIsAClass = Object->IsA("Class");
+	bool bIsAnActor = Object->IsA("Actor") || (bIsAClass && !strcmp(Object->Name, "Actor"));
+	NativeName = va(bIsAnActor ? "a%s" : (bIsAClass ? "u%s" : "f%s"), Object->Name);
+	return NativeName;
+}
+
 void UStruct::Link()
 {
-#if GENERATE_REFLECTION_TYPES
 	UStruct* SuperStruct = SuperField && SuperField->IsA("Struct") ? (UStruct*)SuperField : nullptr;
 	const CTypeInfo* SuperTypeInfo = SuperStruct ? SuperStruct->DataTypeInfo : nullptr;
 	if (SuperStruct && !SuperTypeInfo)
@@ -1876,31 +1885,60 @@ void UStruct::Link()
 				{
 					StructProp->Struct->Link();
 				}
-				PropInfo.TypeName = StructProp->Struct ? StructProp->Struct->Name : "??";
+				PropInfo.TypeName = StructProp->Struct ? BuildNativeTypeNameForScriptType(StructProp->Struct) : "??";
 			}
-			else if (Prop->IsA("IntProperty"))
+			else
+#define ENUMERATE_PROP_TYPES()	\
+				 F(ByteProperty, byte)	\
+			else F(IntProperty, int)	\
+			else F(BoolProperty, bool)	\
+			else F(FloatProperty, float)	\
+			else F(NameProperty, FName)	\
+			else F(StringProperty, FString)	\
+			else F(ClassProperty, UObject*)	\
+			else F(VectorProperty, FVector)	\
+			else F(RotatorProperty, FRotator)	\
+			else F(StrProperty, FString)	\
+			else F(ComponentProperty, component)
+/*#if UNREAL3
+			F(DelegateProperty, UObject*)		// FIXME
+			F(InterfaceProperty, UObject*)		// FIXME
+#endif
+#if UNREAL4
+			F(AttributeProperty, UObject*)		// FIXME
+			F(AssetObjectProperty, FString)		// FIXME
+			F(AssetSubclassProperty, FString)	// FIXME
+#endif*/
+
+#define F(Name, NativeType)	if (Prop->IsA(#Name)) { PropInfo.TypeName = #NativeType; }
+			ENUMERATE_PROP_TYPES()
+#undef F
+			else if (Prop->IsA("ArrayProperty"))
 			{
-				PropInfo.TypeName = "int";
-			}
-			else if (Prop->IsA("BoolProperty"))
-			{
-				PropInfo.TypeName = "bool";
-			}
-			else if (Prop->IsA("ByteProperty"))
-			{
-				PropInfo.TypeName = "byte";
-			}
-			else if (Prop->IsA("FloatProperty"))
-			{
-				PropInfo.TypeName = "float";
-			}
-			else if (Prop->IsA("NameProperty"))
-			{
-				PropInfo.TypeName = "FName";
-			}
-			else if (Prop->IsA("StrProperty"))
-			{
-				PropInfo.TypeName = "FString";
+				UArrayProperty* ArrayProp = (UArrayProperty*)Prop;
+				if (ArrayProp->Inner->IsA("ObjectProperty"))
+				{
+					UObjectProperty* ObjProp = (UObjectProperty*)ArrayProp->Inner;
+					PropInfo.TypeName = "UObject*";
+				}
+				else if (ArrayProp->Inner->IsA("StructProperty"))
+				{
+					UStructProperty* StructProp = (UStructProperty*)ArrayProp->Inner;
+					if (StructProp && StructProp->Struct && !StructProp->Struct->DataTypeInfo)
+					{
+						StructProp->Struct->Link();
+					}
+					PropInfo.TypeName = StructProp->Struct ? BuildNativeTypeNameForScriptType(StructProp->Struct) : "??";
+				}
+				else
+#define F(Name, NativeType) if (ArrayProp->Inner->IsA(#Name)) { PropInfo.TypeName = #NativeType; }
+				ENUMERATE_PROP_TYPES()
+#undef F
+#undef ENUMERATE_PROP_TYPES
+				else
+				{
+					PropInfo.TypeName = ArrayProp->Inner->GetClassName();
+				}
 			}
 			else
 			{
@@ -1912,9 +1950,8 @@ void UStruct::Link()
 	}
 
 	// Natively defined classes take precedence over reflected script types.
-	// Make reflected types stand out by offsetting their prefix letter by one.
-	FName NativeTypeName;
-	NativeTypeName = this->IsA("Actor") ? va("B%s", Name) : (this->IsA("Class") ? va("V%s", Name) : va("G%s", Name));
+	// Make reflected types stand out by making their prefix letter lower case.
+	FName NativeTypeName = BuildNativeTypeNameForScriptType(this);
 	if (!FindClassType(NativeTypeName, true))
 	{
 		CClassInfo Info;
@@ -1922,8 +1959,9 @@ void UStruct::Link()
 		Info.TypeInfo = [this]() { return DataTypeInfo; };
 		RegisterClasses(&Info, 1);
 	}
-#endif
+	
 }
+#endif
 
 
 /*-----------------------------------------------------------------------------

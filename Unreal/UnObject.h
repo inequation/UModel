@@ -177,7 +177,7 @@ static const CTypeInfo* Class##_StaticGetTypeinfo() \
 		NULL,									\
 		sizeof(ThisClass),						\
 		props, ARRAY_COUNT(props),				\
-		NULL									\
+		{}										\
 	);											\
 	return &type;								\
 }
