@@ -1,8 +1,6 @@
 #ifndef __UNOBJECT_H__
 #define __UNOBJECT_H__
 
-#include <functional>
-
 /*-----------------------------------------------------------------------------
 	Simple RTTI
 -----------------------------------------------------------------------------*/
@@ -71,6 +69,45 @@ struct CPropInfo
 };
 
 
+struct CTypeConstructor
+{
+	typedef void (*FRawFunc)(void* Mem);
+
+	CTypeConstructor(std::nullptr_t)
+		: bIsRawFunc(true)
+		, Ptr({ nullptr })
+	{}
+
+	CTypeConstructor(FRawFunc InRawFunc)
+		: bIsRawFunc(true)
+	{
+		Ptr.RawFunc = InRawFunc;
+	}
+
+	CTypeConstructor(class UStruct* InStruct)
+		: bIsRawFunc(false)
+	{
+		Ptr.Struct = InStruct;
+	}
+
+	CTypeConstructor(const CTypeConstructor& Other)
+		: bIsRawFunc(Other.bIsRawFunc)
+		, Ptr(Other.Ptr)
+	{}
+
+	void operator()(void* Mem) const;
+	operator bool() const { return nullptr != (bIsRawFunc ? (void*)Ptr.RawFunc : (void*)Ptr.Struct); }
+
+private:
+	bool			bIsRawFunc;
+	union
+	{
+		FRawFunc		RawFunc;
+		class UStruct*	Struct;
+	}					Ptr;
+};
+
+
 struct CTypeInfo
 {
 	const char		*Name;
@@ -78,10 +115,10 @@ struct CTypeInfo
 	int				SizeOf;
 	const CPropInfo *Props;
 	int				NumProps;
-	std::function<void(void*)> Constructor;
+	CTypeConstructor Constructor;
 	// methods
 	FORCEINLINE CTypeInfo(const char *AName, const CTypeInfo *AParent, int DataSize,
-					 const CPropInfo *AProps, int PropCount, std::function<void(void*)> AConstructor)
+					 const CPropInfo *AProps, int PropCount, CTypeConstructor AConstructor)
 	:	Name(AName)
 	,	Parent(AParent)
 	,	SizeOf(DataSize)
@@ -91,7 +128,11 @@ struct CTypeInfo
 	{}
 	inline bool IsClass() const
 	{
+#if GENERATE_REFLECTION_TYPES
+		return (Name[0] == 'U') || (Name[0] == 'A') || (Name[0] == 'u') || (Name[0] == 'a');	// UE structure type names are started with 'F', classes with 'U' or 'A'
+#else
 		return (Name[0] == 'U') || (Name[0] == 'A');	// UE structure type names are started with 'F', classes with 'U' or 'A'
+#endif
 	}
 	bool IsA(const char *TypeName) const;
 	const CPropInfo *FindProperty(const char *Name) const;
@@ -177,15 +218,53 @@ static const CTypeInfo* Class##_StaticGetTypeinfo() \
 		NULL,									\
 		sizeof(ThisClass),						\
 		props, ARRAY_COUNT(props),				\
-		{}										\
+		nullptr									\
 	);											\
 	return &type;								\
 }
 
+struct CTypeInfoGetter
+{
+	typedef const CTypeInfo* (*FRawFunc)();
+
+	CTypeInfoGetter()
+		: bIsRawFunc(true)
+		, Ptr({ nullptr })
+	{}
+
+	CTypeInfoGetter(FRawFunc InRawFunc)
+		: bIsRawFunc(true)
+	{
+		Ptr.RawFunc = InRawFunc;
+	}
+
+	CTypeInfoGetter(UStruct* InStruct)
+		: bIsRawFunc(false)
+	{
+		Ptr.Struct = InStruct;
+	}
+
+	CTypeInfoGetter(const CTypeInfoGetter& Other)
+		: bIsRawFunc(Other.bIsRawFunc)
+		, Ptr(Other.Ptr)
+	{}
+
+	const CTypeInfo* operator()() const;
+	operator bool() const { return nullptr != (bIsRawFunc ? (void*)Ptr.RawFunc : (void*)Ptr.Struct); }
+
+private:
+	bool				bIsRawFunc;
+	union
+	{
+		FRawFunc		RawFunc;
+		class UStruct*	Struct;
+	}					Ptr;
+};
+
 struct CClassInfo
 {
 	const char		*Name;
-	std::function<const CTypeInfo*()> TypeInfo;
+	CTypeInfoGetter	TypeInfo;
 };
 
 

@@ -230,8 +230,20 @@ public:
 	}
 	
 	void Link();
-	virtual const byte* GetDefaults(size_t& OutSize) { assert("unimplemented GetDefaults()"); return nullptr; }
+	virtual const byte* GetDefaults(size_t& OutSize) { assert(!"unimplemented GetDefaults()"); return nullptr; }
 #endif
+	void ConstructData(void* Mem)
+	{
+#if GENERATE_REFLECTION_TYPES
+		size_t DefaultsSize = 0;
+		if (const byte* Defaults = GetDefaults(DefaultsSize))
+		{
+			memcpy(Mem, Defaults, DefaultsSize);
+		}
+#else
+		assert(!"unimplemented ConstructData()");
+#endif
+	}
 };
 
 #if UNREAL3
@@ -402,7 +414,19 @@ public:
 		unguard;
 	}
 
-	virtual const byte* GetDefaults(size_t& OutSize) { OutSize = ClassDefaultObject->GetTypeinfo()->SizeOf; return (byte*)ClassDefaultObject; }
+	virtual const byte* GetDefaults(size_t& OutSize)
+	{
+		if (ClassDefaultObject)
+		{
+			OutSize = ClassDefaultObject->GetTypeinfo()->SizeOf;
+			return (byte*)ClassDefaultObject;
+		}
+		else
+		{
+			OutSize = 0;
+			return nullptr;
+		}
+	}
 };
 
 
