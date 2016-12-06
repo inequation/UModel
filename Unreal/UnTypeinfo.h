@@ -246,6 +246,7 @@ public:
 	TArray<byte> StructDefaults;
 private:
 	int64 DeferredLoadingPos;
+public:
 
 	virtual void PostLoad()
 	{
@@ -253,19 +254,10 @@ private:
 		size_t BufferSize = (size_t)Align(DataTypeInfo->SizeOf, DEFAULT_ALIGNMENT);
 		StructDefaults.Empty(BufferSize);
 		StructDefaults.AddZeroed(BufferSize);
-#if 1
-		UnPackage *Package = Package;
-		Package->Loader = nullptr;
 		Package->SetupReader(PackageIndex);
 		Package->Seek64(DeferredLoadingPos);
 		DataTypeInfo->SerializeProps(*Package, StructDefaults.GetData());
 		Package->CloseReader();
-#else
-		FMemReader MemAr(TemporaryDefaults.GetData(), TemporaryDefaults.Num());
-		// FIXME: Why are all the tags invalid?s
-		DataTypeInfo->SerializeProps(MemAr, StructDefaults.GetData());
-		TemporaryDefaults.Empty();
-#endif
 	}
 
 	virtual const byte* GetDefaults(size_t& OutSize) { OutSize = StructDefaults.Num(); return StructDefaults.GetData(); }
@@ -280,14 +272,7 @@ private:
 		// Actual serialization needs to be postponed to until all fields have been loaded. Otherwise DataTypeInfo can't be property populated.
 		if (Ar.IsLoading)
 		{
-#if 1
 			DeferredLoadingPos = Ar.Tell64();
-#else
-			size_t SerializedDefaultsSize = Ar.GetStopper() - Ar.Tell();
-			TemporaryDefaults.Empty(SerializedDefaultsSize);
-			TemporaryDefaults.AddUninitialized(SerializedDefaultsSize);
-			Ar.Serialize(TemporaryDefaults.GetData(), SerializedDefaultsSize);
-#endif
 		}
 		else
 		{
@@ -335,6 +320,22 @@ public:
 
 	UObject*		ClassDefaultObject;
 
+private:
+	int64			DeferredLoadingPos;
+public:
+
+	virtual void PostLoad()
+	{
+		Super::PostLoad();
+		if (DeferredLoadingPos)
+		{
+			Package->SetupReader(PackageIndex);
+			Package->Seek64(DeferredLoadingPos);
+			*Package << ClassDefaultObject;
+			Package->CloseReader();
+		}
+	}
+
 	virtual void Serialize(FArchive &Ar)
 	{
 		guard(UClass::Serialize);
@@ -351,8 +352,8 @@ public:
 		// We only care about the default properties by at this point, so skip all the way over to them, if possible.
 		if (Ar.ArVer >= 322)
 		{
-			Ar.Seek(Ar.GetStopper() - 4);
-			Ar << ClassDefaultObject;
+			DeferredLoadingPos = Ar.GetStopper() - 4;
+			DROP_REMAINING_DATA(Ar);
 		}
 #if UNREAL3
 		else if (Ar.Engine() >= EGame::GAME_UE3)
