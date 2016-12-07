@@ -729,6 +729,30 @@ public:
 	virtual size_t GetElementSize() override { return sizeof(UObject*); }
 };
 
+class UDelegateProperty : public UProperty
+{
+	DECLARE_CLASS(UDelegateProperty, UProperty);
+public:
+	UObject			*Object;
+	FName			FunctionName;
+
+	virtual void Serialize(FArchive &Ar)
+	{
+		guard(UDelegateProperty::Serialize);
+		Super::Serialize(Ar);
+		Ar << Object << FunctionName;
+		unguard;
+	}
+
+	virtual size_t GetElementSize() override { return sizeof(UObject*) + sizeof(FName); }
+};
+
+// This probably does not inherit from UClassProperty in UE, but it is essentially a class.
+class UInterfaceProperty : public UClassProperty
+{
+	DECLARE_CLASS(UInterfaceProperty, UClassProperty);
+};
+
 #endif // UNREAL3
 
 
@@ -785,8 +809,11 @@ class UPointerProperty : public UProperty
 	REGISTER_CLASS(UPointerProperty)
 
 #define REGISTER_TYPEINFO_CLASSES_U3	\
+	REGISTER_CLASS(UState)				\
 	REGISTER_CLASS(UScriptStruct)		\
-	REGISTER_CLASS(UComponentProperty)
+	REGISTER_CLASS(UComponentProperty)	\
+	REGISTER_CLASS(UDelegateProperty)	\
+	REGISTER_CLASS(UInterfaceProperty)
 
 #define REGISTER_TYPEINFO_CLASSES_MK	\
 	REGISTER_CLASS(UNativeTypeProperty)	\
