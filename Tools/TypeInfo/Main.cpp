@@ -193,7 +193,13 @@ void DumpProps(FArchive &Ar, const UStruct *Struct)
 			TypeName = Prop->TypeName;
 		}
 #endif // MKVSDC
-		// other: UDelegateProperty, UInterfaceProperty
+#if UNREAL3
+		else if (IS(UDelegateProperty))
+		{
+			TypeName = "delegate";	//???
+		}
+#endif
+		// other: UInterfaceProperty
 		if (!TypeName) appError("Unknown type %s for field %s", ClassName, F->Name);
 		char FullType[256];
 		if (isArray)
