@@ -268,7 +268,9 @@ public:
 		StructDefaults.AddZeroed(BufferSize);
 		Package->SetupReader(PackageIndex);
 		Package->Seek64(DeferredLoadingPos);
+		UObject::GLoadingObj = this;
 		DataTypeInfo->SerializeProps(*Package, StructDefaults.GetData());
+		UObject::GLoadingObj = nullptr;
 		Package->CloseReader();
 	}
 
@@ -343,7 +345,9 @@ public:
 		{
 			Package->SetupReader(PackageIndex);
 			Package->Seek64(DeferredLoadingPos);
+			UObject::GLoadingObj = this;
 			*Package << ClassDefaultObject;
+			UObject::GLoadingObj = nullptr;
 			Package->CloseReader();
 		}
 	}
