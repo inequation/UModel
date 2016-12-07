@@ -1092,6 +1092,16 @@ struct FBoxSphereBounds
 	}
 };
 
+struct FTwoVectors
+{
+	FVector V1, V2;
+
+	friend FArchive& operator<<(FArchive &Ar, FTwoVectors &TV)
+	{
+		return Ar << TV.V1 << TV.V2;
+	}
+};
+
 
 struct FPackedNormal
 {

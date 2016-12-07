@@ -1219,6 +1219,35 @@ void CTypeInfo::SerializeProps(FArchive &Ar, void *ObjectData) const
 					appNotify("Struc property %s expected type %s but read %s", *Tag.Name, Prop->TypeName, *Tag.StrucName);
 					Ar.Seek(StopPos);
 				}
+				// Some Core structs need special treatment.
+#define HANDLE_CORE_STRUCT_EX(Name, ExpectedSize)	else if (strcmp(Tag.StrucName, #Name) == 0 && Tag.DataSize == ExpectedSize) { Ar << PROP(F##Name); }
+#define HANDLE_CORE_STRUCT(Name)					HANDLE_CORE_STRUCT_EX(Name, sizeof(F##Name))
+#if FURY
+				HANDLE_CORE_STRUCT_EX(Guid, sizeof(FGuid) + (Ar.Game == GAME_Fury ? sizeof(int32) : 0))
+#else
+				HANDLE_CORE_STRUCT(FGuid)
+#endif
+#if ENDWAR
+				HANDLE_CORE_STRUCT_EX(Vector, sizeof(FVector) + (Ar.Game == GAME_EndWar ? sizeof(float) : 0))
+#else
+				HANDLE_CORE_STRUCT(Vector)
+#endif
+#if UC2
+				HANDLE_CORE_STRUCT_EX(Box, 2 * sizeof(FVector) + (Ar.Engine() == GAME_UE2X && Ar.ArVer >= 146 ? 0 : sizeof(bool)))
+#else
+				HANDLE_CORE_STRUCT_EX(Box, 2 * sizeof(FVector) + sizeof(bool))
+#endif
+				HANDLE_CORE_STRUCT_EX(Sphere, sizeof(FVector) + (Ar.ArVer >= 61 ? sizeof(float) : 0))
+				HANDLE_CORE_STRUCT(Vector2D)
+				HANDLE_CORE_STRUCT(Vector4)
+				HANDLE_CORE_STRUCT(Quat)
+				HANDLE_CORE_STRUCT(Rotator)
+				HANDLE_CORE_STRUCT(TwoVectors)
+				HANDLE_CORE_STRUCT(Plane)
+				HANDLE_CORE_STRUCT(Color)
+				HANDLE_CORE_STRUCT(Matrix)
+#undef HANDLE_CORE_STRUCT_EX
+#undef HANDLE_CORE_STRUCT
 				else if (SerializeStruc(Ar, value, Tag.ArrayIndex, Prop->TypeName))
 				{
 					PROP_DBG("(struct:%s)", *Tag.StrucName);
@@ -1804,7 +1833,7 @@ void UStruct::Link()
 		}
 	}
 
-	DataTypeInfo = new CTypeInfo(Name, SuperTypeInfo, 0, new CPropInfo[PropertyCount], PropertyCount, this);
+	DataTypeInfo = new CTypeInfo(Name, SuperTypeInfo, SuperTypeInfo ? SuperTypeInfo->SizeOf : 0, new CPropInfo[PropertyCount], PropertyCount, this);
 	int PropIndex = 0;
 	for (UField* Field = Children; Field; Field = Field->Next)
 	{
@@ -1842,7 +1871,7 @@ void UStruct::Link()
 			else F(VectorProperty, FVector)	\
 			else F(RotatorProperty, FRotator)	\
 			else F(StrProperty, FString)	\
-			else F(ComponentProperty, component)
+			else F(ComponentProperty, UObject*)
 /*#if UNREAL3
 			F(DelegateProperty, UObject*)		// FIXME
 			F(InterfaceProperty, UObject*)		// FIXME
@@ -1858,8 +1887,14 @@ void UStruct::Link()
 #undef F
 			else if (Prop->IsA("ArrayProperty"))
 			{
+				PropInfo.Count = -1;
 				UArrayProperty* ArrayProp = (UArrayProperty*)Prop;
-				if (ArrayProp->Inner->IsA("ObjectProperty"))
+				if (!ArrayProp->Inner)
+				{
+					appPrintf("WARNING: Array property \"%s::%s\" has no inner property\n", Name, Prop->Name);
+					PropInfo.TypeName = "??";
+				}
+				else if (ArrayProp->Inner->IsA("ObjectProperty"))
 				{
 					UObjectProperty* ObjProp = (UObjectProperty*)ArrayProp->Inner;
 					PropInfo.TypeName = "UObject*";
@@ -1932,6 +1967,7 @@ const CTypeInfo* CTypeInfoGetter::operator()() const
 		return Ptr.Struct->GetDataTypeInfo();
 #else
 		assert(!"CTypeInfoGetter should never be set to struct data type info fetching when reflection type generation is disabled");
+		return nullptr;
 #endif
 	}
 }
@@ -1958,6 +1994,13 @@ BEGIN_PROP_TABLE_EXTERNAL(FColor)
 	PROP_BYTE(G)
 	PROP_BYTE(B)
 	PROP_BYTE(A)
+END_PROP_TABLE_EXTERNAL
+
+BEGIN_PROP_TABLE_EXTERNAL(FGuid)
+	PROP_BYTE(A)
+	PROP_BYTE(B)
+	PROP_BYTE(C)
+	PROP_BYTE(D)
 END_PROP_TABLE_EXTERNAL
 
 #if UNREAL3
@@ -1992,6 +2035,7 @@ void RegisterCoreClasses()
 		REGISTER_CLASS_EXTERNAL(FVector)
 		REGISTER_CLASS_EXTERNAL(FRotator)
 		REGISTER_CLASS_EXTERNAL(FColor)
+		REGISTER_CLASS_EXTERNAL(FGuid)
 	#if UNREAL3
 		REGISTER_CLASS_EXTERNAL(FLinearColor)
 		REGISTER_CLASS_EXTERNAL(FBoxSphereBounds)
