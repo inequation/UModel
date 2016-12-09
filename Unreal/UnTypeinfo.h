@@ -614,7 +614,14 @@ public:
 	{
 		guard(UClassProperty::Serialize);
 		Super::Serialize(Ar);
-		Ar << MetaClass;
+		//Ar << MetaClass;
+		const size_t BytesLeft = Ar.GetStopper() - Ar.Tell();
+		const size_t Diff = GetElementSize() - BytesLeft;
+		if (Diff != 0)
+		{
+			appPrintf("WARNING: Buffer %srun by %d bytes (got %d, expected %d) when trying to read UClassProperty!\n", Diff > 0 ? "under" : "over", Diff, BytesLeft, GetElementSize());
+		}
+		DROP_REMAINING_DATA(Ar);	//!!
 		unguard;
 	}
 
@@ -733,18 +740,30 @@ class UDelegateProperty : public UProperty
 {
 	DECLARE_CLASS(UDelegateProperty, UProperty);
 public:
-	UObject			*Object;
-	FName			FunctionName;
-
+	//!! dummy class
 	virtual void Serialize(FArchive &Ar)
 	{
-		guard(UDelegateProperty::Serialize);
+		guard(UFunction::Serialize);
 		Super::Serialize(Ar);
-		Ar << Object << FunctionName;
+		const size_t BytesLeft = Ar.GetStopper() - Ar.Tell();
+		const size_t Diff = GetElementSize() - BytesLeft;
+		if (Diff != 0)
+		{
+			appPrintf("WARNING: Buffer %srun by %d bytes (got %d, expected %d) when trying to read UDelegateProperty!\n", Diff > 0 ? "under" : "over", Diff, BytesLeft, GetElementSize());
+		}
+		DROP_REMAINING_DATA(Ar);	//!!
 		unguard;
 	}
 
-	virtual size_t GetElementSize() override { return sizeof(UObject*) + sizeof(FName); }
+	virtual size_t GetElementSize() override
+	{
+		return sizeof(UObject*)
+			+ sizeof(int32)	// FName::Index
+#if UNREAL3 || UNREAL4
+			+ sizeof(int32)	// FName::ExtraIndex	// FIXME: This actually depends on the game we're currently loading...
+#endif
+		;
+	}
 };
 
 // This probably does not inherit from UClassProperty in UE, but it is essentially a class.
