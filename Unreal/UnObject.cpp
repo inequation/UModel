@@ -1100,13 +1100,13 @@ void CTypeInfo::SerializeProps(FArchive &Ar, void *ObjectData) const
 			break;
 
 		case NAME_ObjectProperty:
-			CHECK_TYPE("UObject*");
+			CHECK_TYPE("Object");
 			Ar << PROP(UObject*);
 			PROP_DBG("%s", PROP(UObject*) ? PROP(UObject*)->Name : "Null");
 			break;
 
 		case NAME_NameProperty:
-			CHECK_TYPE("FName");
+			CHECK_TYPE("Name");
 			Ar << PROP(FName);
 			PROP_DBG("%s", *PROP(FName));
 			break;
@@ -1121,8 +1121,9 @@ void CTypeInfo::SerializeProps(FArchive &Ar, void *ObjectData) const
 				appPrintf("  %s[] = {\n", *Tag.Name);
 #endif
 				FArray *Arr = (FArray*)value;
-#define SIMPLE_ARRAY_TYPE(type) \
-		if (!strcmp(Prop->TypeName, #type)) { Ar << *(TArray<type>*)Arr; }
+#define SIMPLE_ARRAY_TYPE_EX(InTypeName, InType) \
+		if (!strcmp(Prop->TypeName, #InTypeName)) { Ar << *(TArray<InType>*)Arr; }
+#define SIMPLE_ARRAY_TYPE(InType)	SIMPLE_ARRAY_TYPE_EX(InType, InType)
 				SIMPLE_ARRAY_TYPE(int)
 				else SIMPLE_ARRAY_TYPE(bool)
 				else SIMPLE_ARRAY_TYPE(byte)
@@ -1131,6 +1132,8 @@ void CTypeInfo::SerializeProps(FArchive &Ar, void *ObjectData) const
 				else SIMPLE_ARRAY_TYPE(FName)
 				else SIMPLE_ARRAY_TYPE(FVector)
 				else SIMPLE_ARRAY_TYPE(FQuat)
+				else SIMPLE_ARRAY_TYPE_EX(String, FString)
+				else SIMPLE_ARRAY_TYPE_EX(Name, FName)
 #undef SIMPLE_ARRAY_TYPE
 				else
 				{
@@ -1214,7 +1217,7 @@ void CTypeInfo::SerializeProps(FArchive &Ar, void *ObjectData) const
 				if (Ar.Game == GAME_MK && Ar.ArVer >= 677 && (*Tag.StrucName)[0] == 'F')
 					Tag.StrucName.Str++;		// Tag.StrucName points to 'FStrucName' instead of 'StrucName'
 #endif // MKVSDC
-				if (stricmp(Prop->TypeName+1, *Tag.StrucName) != 0 && stricmp(*Tag.StrucName, "None") != 0) // Tag.StrucName could be unknown in Batman2
+				if (stricmp(Prop->TypeName, *Tag.StrucName) != 0 && stricmp(*Tag.StrucName, "None") != 0) // Tag.StrucName could be unknown in Batman2
 				{
 					appNotify("Struc property %s expected type %s but read %s", *Tag.Name, Prop->TypeName, *Tag.StrucName);
 					Ar.Seek(StopPos);
@@ -1225,7 +1228,7 @@ void CTypeInfo::SerializeProps(FArchive &Ar, void *ObjectData) const
 #if FURY
 				HANDLE_CORE_STRUCT_EX(Guid, sizeof(FGuid) + (Ar.Game == GAME_Fury ? sizeof(int32) : 0))
 #else
-				HANDLE_CORE_STRUCT(FGuid)
+				HANDLE_CORE_STRUCT(Guid)
 #endif
 #if ENDWAR
 				HANDLE_CORE_STRUCT_EX(Vector, sizeof(FVector) + (Ar.Game == GAME_EndWar ? sizeof(float) : 0))
@@ -1245,6 +1248,7 @@ void CTypeInfo::SerializeProps(FArchive &Ar, void *ObjectData) const
 				HANDLE_CORE_STRUCT(TwoVectors)
 				HANDLE_CORE_STRUCT(Plane)
 				HANDLE_CORE_STRUCT(Color)
+				HANDLE_CORE_STRUCT(LinearColor)
 				HANDLE_CORE_STRUCT(Matrix)
 #undef HANDLE_CORE_STRUCT_EX
 #undef HANDLE_CORE_STRUCT
@@ -1282,7 +1286,7 @@ void CTypeInfo::SerializeProps(FArchive &Ar, void *ObjectData) const
 			else
 			{
 				// serialize FString
-				CHECK_TYPE("FString");
+				CHECK_TYPE("String");
 				Ar << PROP(FString);
 				PROP_DBG("%s", *PROP(FString));
 			}
@@ -1293,7 +1297,9 @@ void CTypeInfo::SerializeProps(FArchive &Ar, void *ObjectData) const
 			break;
 
 		case NAME_FixedArrayProperty:
-			appError("FixedArray property not implemented");
+			//appError("FixedArray property not implemented");
+			appPrintf("WARNING: FixedArray property not implemented, skipping");
+			Ar.Seek(StopPos);
 			break;
 
 		// reserved, but not implemented in unreal:
@@ -1393,27 +1399,20 @@ void UnregisterClass(const char *Name, bool WholeTree)
 }
 
 
-const CTypeInfo *FindClassType(const char *Name, bool ClassType)
+
+static const CTypeInfo *FindTypeInfo(const char* Name, EClassType Flags)
 {
-	guard(FindClassType);
+	guard(FindTypeInfo);
 #if DEBUG_TYPES
-	appPrintf("--- find %s %s ... ", ClassType ? "class" : "struct", Name);
+	appPrintf("--- find %s %s ... ", (Flags & EClassType::Class) ? "class" : "struct", Name);
 #endif
 	for (int i = 0; i < GClassCount; i++)
 	{
-		// skip 1st char only for ClassType==true?
-		if (ClassType)
-		{
-			if (stricmp(GClasses[i].Name + 1, Name) != 0) continue;
-		}
-		else
-		{
-			if (stricmp(GClasses[i].Name, Name) != 0) continue;
-		}
+		if ((GClasses[i].ClassType & Flags) == 0) continue;
+		if (stricmp(GClasses[i].Name, Name) != 0) continue;
 
 		if (!GClasses[i].TypeInfo) appError("No typeinfo for class");
 		const CTypeInfo *Type = GClasses[i].TypeInfo();
-		if (Type->IsClass() != ClassType) continue;
 #if DEBUG_TYPES
 		appPrintf("ok %s\n", Type->Name);
 #endif
@@ -1424,6 +1423,18 @@ const CTypeInfo *FindClassType(const char *Name, bool ClassType)
 #endif
 	return NULL;
 	unguardf("%s", Name);
+}
+
+
+const CTypeInfo *FindClassType(const char *Name)
+{
+	return FindTypeInfo(Name, EClassType::Class);
+}
+
+
+const CTypeInfo *FindStructType(const char *Name)
+{
+	return FindTypeInfo(Name, EClassType::Struct);
 }
 
 
@@ -1805,15 +1816,6 @@ int NameToEnum(const char *EnumName, const char *Value)
 }
 
 #if GENERATE_REFLECTION_TYPES
-static FName BuildNativeTypeNameForScriptType(const UObject* Object)
-{
-	FName NativeName;
-	bool bIsAClass = Object->IsA("Class");
-	bool bIsAnActor = Object->IsA("Actor") || (bIsAClass && !strcmp(Object->Name, "Actor"));
-	NativeName = va(bIsAnActor ? "a%s" : (bIsAClass ? "u%s" : "f%s"), Object->Name);
-	return NativeName;
-}
-
 void UStruct::Link()
 {
 	UStruct* SuperStruct = SuperField && SuperField->IsA("Struct") ? (UStruct*)SuperField : nullptr;
@@ -1845,19 +1847,14 @@ void UStruct::Link()
 			PropInfo.Count = max(1, Prop->ArrayDim);
 			PropInfo.Name = Prop->Name;
 			PropInfo.Offset = DataTypeInfo->SizeOf;
-			if (Prop->IsA("ObjectProperty"))
-			{
-				UObjectProperty* ObjProp = (UObjectProperty*)Prop;
-				PropInfo.TypeName = "UObject*";
-			}
-			else if (Prop->IsA("StructProperty"))
+			if (Prop->IsA("StructProperty"))
 			{
 				UStructProperty* StructProp = (UStructProperty*)Prop;
 				if (StructProp && StructProp->Struct && !StructProp->Struct->DataTypeInfo)
 				{
 					StructProp->Struct->Link();
 				}
-				PropInfo.TypeName = StructProp->Struct ? BuildNativeTypeNameForScriptType(StructProp->Struct) : "??";
+				PropInfo.TypeName = StructProp->Struct ? StructProp->Struct->Name : "??";
 			}
 			else
 #define ENUMERATE_PROP_TYPES()	\
@@ -1865,13 +1862,14 @@ void UStruct::Link()
 			else F(IntProperty, int)	\
 			else F(BoolProperty, bool)	\
 			else F(FloatProperty, float)	\
-			else F(NameProperty, FName)	\
-			else F(StringProperty, FString)	\
-			else F(ClassProperty, UObject*)	\
-			else F(VectorProperty, FVector)	\
-			else F(RotatorProperty, FRotator)	\
-			else F(StrProperty, FString)	\
-			else F(ComponentProperty, UObject*)
+			else F(NameProperty, Name)	\
+			else F(StringProperty, String)	\
+			else F(ObjectProperty, Object)	\
+			else F(ClassProperty, Object)	\
+			else F(VectorProperty, Vector)	\
+			else F(RotatorProperty, Rotator)	\
+			else F(StrProperty, String)	\
+			else F(ComponentProperty, Object)
 /*#if UNREAL3
 			F(DelegateProperty, UObject*)		// FIXME
 			F(InterfaceProperty, UObject*)		// FIXME
@@ -1882,7 +1880,7 @@ void UStruct::Link()
 			F(AssetSubclassProperty, FString)	// FIXME
 #endif*/
 
-#define F(Name, NativeType)	if (Prop->IsA(#Name)) { PropInfo.TypeName = #NativeType; }
+#define F(Name, NameStr)	if (Prop->IsA(#Name)) { PropInfo.TypeName = #NameStr; }
 			ENUMERATE_PROP_TYPES()
 #undef F
 			else if (Prop->IsA("ArrayProperty"))
@@ -1906,7 +1904,7 @@ void UStruct::Link()
 					{
 						StructProp->Struct->Link();
 					}
-					PropInfo.TypeName = StructProp->Struct ? BuildNativeTypeNameForScriptType(StructProp->Struct) : "??";
+					PropInfo.TypeName = StructProp->Struct ? StructProp->Struct->Name : "??";
 				}
 				else
 #define F(Name, NativeType) if (ArrayProp->Inner->IsA(#Name)) { PropInfo.TypeName = #NativeType; }
@@ -1929,11 +1927,12 @@ void UStruct::Link()
 
 	// Natively defined classes take precedence over reflected script types.
 	// Make reflected types stand out by making their prefix letter lower case.
-	FName NativeTypeName = BuildNativeTypeNameForScriptType(this);
-	if (!FindClassType(NativeTypeName, true))
+	bool bIsClass = IsA("Class");
+	if ((bIsClass && !FindClassType(Name)) || (!bIsClass && !FindStructType(Name)))
 	{
 		CClassInfo Info;
-		Info.Name = NativeTypeName;
+		Info.Name = Name;
+		Info.ClassType = (EClassType)(EClassType::Script | (bIsClass ? EClassType::Class : EClassType::Struct));
 		Info.TypeInfo = this;
 		RegisterClasses(&Info, 1);
 	}
@@ -2032,16 +2031,16 @@ END_PROP_TABLE_EXTERNAL
 void RegisterCoreClasses()
 {
 	BEGIN_CLASS_TABLE
-		REGISTER_CLASS_EXTERNAL(FVector)
-		REGISTER_CLASS_EXTERNAL(FRotator)
-		REGISTER_CLASS_EXTERNAL(FColor)
-		REGISTER_CLASS_EXTERNAL(FGuid)
+		REGISTER_STRUCT_EXTERNAL(FVector)
+		REGISTER_STRUCT_EXTERNAL(FRotator)
+		REGISTER_STRUCT_EXTERNAL(FColor)
+		REGISTER_STRUCT_EXTERNAL(FGuid)
 	#if UNREAL3
-		REGISTER_CLASS_EXTERNAL(FLinearColor)
-		REGISTER_CLASS_EXTERNAL(FBoxSphereBounds)
+		REGISTER_STRUCT_EXTERNAL(FLinearColor)
+		REGISTER_STRUCT_EXTERNAL(FBoxSphereBounds)
 	#endif
 	#if UNREAL4
-		REGISTER_CLASS_EXTERNAL(FIntPoint)
+		REGISTER_STRUCT_EXTERNAL(FIntPoint)
 	#endif
 	END_CLASS_TABLE
 }
