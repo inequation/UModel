@@ -126,14 +126,6 @@ struct CTypeInfo
 	,	NumProps(PropCount)
 	,	Constructor(AConstructor)
 	{}
-	inline bool IsClass() const
-	{
-#if GENERATE_REFLECTION_TYPES
-		return (Name[0] == 'U') || (Name[0] == 'A') || (Name[0] == 'u') || (Name[0] == 'a');	// UE structure type names are started with 'F', classes with 'U' or 'A'
-#else
-		return (Name[0] == 'U') || (Name[0] == 'A');	// UE structure type names are started with 'F', classes with 'U' or 'A'
-#endif
-	}
 	bool IsA(const char *TypeName) const;
 	const CPropInfo *FindProperty(const char *Name) const;
 	void SerializeProps(FArchive &Ar, void *ObjectData) const;
@@ -159,10 +151,12 @@ struct CNullType
 };
 
 
-#define _PROP_BASE(Field,Type)	{ #Field, #Type, FIELD2OFS(ThisClass, Field), sizeof(((ThisClass*)NULL)->Field) / sizeof(Type) },
-#define PROP_ARRAY(Field,Type)	{ #Field, #Type, FIELD2OFS(ThisClass, Field), -1 },
-#define PROP_STRUC(Field,Type)	_PROP_BASE(Field, Type)
-#define PROP_DROP(Field)		{ #Field, NULL, 0, 0 },		// signal property, which should be dropped
+#define _PROP_BASE_POD(Field,Type)	{ #Field, #Type, FIELD2OFS(ThisClass, Field), sizeof(((ThisClass*)NULL)->Field) / sizeof(Type) },
+#define _PROP_BASE(Field,Type)		{ #Field, #Type + 1, FIELD2OFS(ThisClass, Field), sizeof(((ThisClass*)NULL)->Field) / sizeof(Type) },
+#define PROP_ARRAY_POD(Field,Type)	{ #Field, #Type, FIELD2OFS(ThisClass, Field), -1 },
+#define PROP_ARRAY(Field,Type)		{ #Field, #Type + 1, FIELD2OFS(ThisClass, Field), -1 },
+#define PROP_STRUC(Field,Type)		_PROP_BASE(Field, Type)
+#define PROP_DROP(Field)			{ #Field, NULL, 0, 0 },		// signal property, which should be dropped
 
 
 // BEGIN_PROP_TABLE/END_PROP_TABLE declares property table inside class declaration
@@ -179,10 +173,10 @@ struct CNullType
 // compiler report it as 4-byte field)
 #define PROP_ENUM(Field)		{ #Field, "byte",   FIELD2OFS(ThisClass, Field), 1 },
 #define PROP_ENUM2(Field,Type)	{ #Field, "#"#Type, FIELD2OFS(ThisClass, Field), 1 },
-#define PROP_BYTE(Field)		_PROP_BASE(Field, byte     )
-#define PROP_INT(Field)			_PROP_BASE(Field, int      )
-#define PROP_BOOL(Field)		_PROP_BASE(Field, bool     )
-#define PROP_FLOAT(Field)		_PROP_BASE(Field, float    )
+#define PROP_BYTE(Field)		_PROP_BASE_POD(Field, byte     )
+#define PROP_INT(Field)			_PROP_BASE_POD(Field, int      )
+#define PROP_BOOL(Field)		_PROP_BASE_POD(Field, bool     )
+#define PROP_FLOAT(Field)		_PROP_BASE_POD(Field, float    )
 #define PROP_NAME(Field)		_PROP_BASE(Field, FName    )
 #define PROP_OBJ(Field)			_PROP_BASE(Field, UObject* )
 // structure types; note: structure names corresponds to F<StrucName> C++ struc
@@ -261,9 +255,26 @@ private:
 	}					Ptr;
 };
 
+enum EClassType
+{
+	Struct			= 0x01,
+	Class			= 0x02,
+	Actor			= 0x04 | Class,
+	Native			= 0x08,
+	Script			= 0x10,
+
+	NativeStruct	= Native | Struct,
+	NativeClass		= Native | Class,
+	NativeActor		= Native | Actor,
+	ScriptStruct	= Script | Struct,
+	ScriptClass		= Script | Class,
+	ScriptActor		= Script | Actor
+};
+
 struct CClassInfo
 {
 	const char		*Name;
+	EClassType		ClassType;
 	CTypeInfoGetter	TypeInfo;
 };
 
@@ -271,12 +282,8 @@ struct CClassInfo
 void RegisterClasses(const CClassInfo *Table, int Count);
 void UnregisterClass(const char *Name, bool WholeTree = false);
 
-const CTypeInfo *FindClassType(const char *Name, bool ClassType = true);
-
-FORCEINLINE const CTypeInfo *FindStructType(const char *Name)
-{
-	return FindClassType(Name, false);
-}
+const CTypeInfo *FindClassType(const char *Name);
+const CTypeInfo *FindStructType(const char *Name);
 
 UObject *CreateClass(const char *Name);
 
@@ -289,13 +296,34 @@ FORCEINLINE bool IsKnownClass(const char *Name)
 #define BEGIN_CLASS_TABLE						\
 	{											\
 		static const CClassInfo Table[] = {
+#define REGISTER_NATIVE_TYPE(Type,ClassType)	\
+			{ #Type + 1, EClassType::ClassType, Type::StaticGetTypeinfo },
+// Native type with BEGIN_PROP_TABLE_EXTERNAL/END_PROP_TABLE_EXTERNAL property table
+#define REGISTER_NATIVE_TYPE_EXTERNAL(Type,ClassType)			\
+			{ #Type + 1, EClassType::ClassType, Type##_StaticGetTypeinfo },
+#define REGISTER_NATIVE_TYPE_ALIAS(Type,TypeName,ClassType)	\
+			{ #TypeName + 1, EClassType::ClassType, Type::StaticGetTypeinfo },
+#define REGISTER_ACTOR(Class)					\
+			REGISTER_NATIVE_TYPE(Class, NativeActor)
+// Actor with BEGIN_PROP_TABLE_EXTERNAL/END_PROP_TABLE_EXTERNAL property table
+#define REGISTER_ACTOR_EXTERNAL(Class)			\
+			REGISTER_NATIVE_TYPE_EXTERNAL(Class, NativeActor)
+#define REGISTER_ACTOR_ALIAS(Class,ClassName)	\
+			REGISTER_NATIVE_TYPE_ALIAS(Class, ClassName, NativeActor)
 #define REGISTER_CLASS(Class)					\
-			{ #Class, Class::StaticGetTypeinfo },
+			REGISTER_NATIVE_TYPE(Class, NativeClass)
 // Class with BEGIN_PROP_TABLE_EXTERNAL/END_PROP_TABLE_EXTERNAL property table
 #define REGISTER_CLASS_EXTERNAL(Class)			\
-			{ #Class, Class##_StaticGetTypeinfo },
+			REGISTER_NATIVE_TYPE_EXTERNAL(Class, NativeClass)
 #define REGISTER_CLASS_ALIAS(Class,ClassName)	\
-			{ #ClassName, Class::StaticGetTypeinfo },
+			REGISTER_NATIVE_TYPE_ALIAS(Class, ClassName, NativeClass)
+#define REGISTER_STRUCT(Struct)					\
+			REGISTER_NATIVE_TYPE(Struct, NativeStruct)
+// Struct with BEGIN_PROP_TABLE_EXTERNAL/END_PROP_TABLE_EXTERNAL property table
+#define REGISTER_STRUCT_EXTERNAL(Struct)		\
+			REGISTER_NATIVE_TYPE_EXTERNAL(Struct, NativeStruct)
+#define REGISTER_STRUCT_ALIAS(Struct,StructName)\
+			REGISTER_NATIVE_TYPE_ALIAS(Struct, StructName, NativeStruct)
 #define END_CLASS_TABLE							\
 		};										\
 		RegisterClasses(ARRAY_ARG(Table));		\

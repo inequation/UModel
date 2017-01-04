@@ -40,8 +40,8 @@ struct FSkeletalMeshLODInfo
 	BEGIN_PROP_TABLE
 		PROP_FLOAT(DisplayFactor)
 		PROP_FLOAT(LODHysteresis)
-		PROP_ARRAY(LODMaterialMap, int)
-		PROP_ARRAY(bEnableShadowCasting, bool)
+		PROP_ARRAY_POD(LODMaterialMap, int)
+		PROP_ARRAY_POD(bEnableShadowCasting, bool)
 		PROP_DROP(TriangleSorting)
 		PROP_DROP(TriangleSortSettings)
 		PROP_DROP(bHasBeenSimplified)
@@ -213,7 +213,7 @@ struct FRawAnimSequenceTrack
 	BEGIN_PROP_TABLE
 		PROP_ARRAY(PosKeys,  FVector)
 		PROP_ARRAY(RotKeys,  FQuat)
-		PROP_ARRAY(KeyTimes, float)
+		PROP_ARRAY_POD(KeyTimes, float)
 #if UNREAL4
 		PROP_ARRAY(ScaleKeys, FVector)
 #endif
@@ -450,7 +450,7 @@ public:
 		PROP_ENUM2(TranslationCompressionFormat, AnimationCompressionFormat)
 		PROP_ENUM2(RotationCompressionFormat, AnimationCompressionFormat)
 		PROP_ENUM2(KeyEncodingFormat, AnimationKeyFormat)
-		PROP_ARRAY(CompressedTrackOffsets, int)
+		PROP_ARRAY_POD(CompressedTrackOffsets, int)
 		PROP_BOOL(bIsAdditive)
 		PROP_NAME(AdditiveRefName)
 #if TUROK
@@ -460,12 +460,12 @@ public:
 		PROP_OBJ(m_pBioAnimSetData)
 #endif
 #if ARGONAUTS
-		PROP_ARRAY(CompressedTrackTimeOffsets, int)
+		PROP_ARRAY_POD(CompressedTrackTimeOffsets, int)
 		PROP_DROP(CompressedTrackSizes)
 #endif
 #if TRANSFORMERS
-		PROP_ARRAY(Tracks, int)				//?? not used?
-		PROP_ARRAY(TrackOffsets, int)
+		PROP_ARRAY_POD(Tracks, int)				//?? not used?
+		PROP_ARRAY_POD(TrackOffsets, int)
 #endif
 		// unsupported
 		PROP_DROP(Notifies)

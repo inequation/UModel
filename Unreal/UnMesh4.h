@@ -331,7 +331,7 @@ public:
 	int32					StripSize;
 
 	BEGIN_PROP_TABLE
-		PROP_ARRAY(OffsetData, int)
+		PROP_ARRAY_POD(OffsetData, int)
 		PROP_INT(StripSize)
 	END_PROP_TABLE
 
@@ -494,7 +494,7 @@ public:
 		PROP_ENUM2(TranslationCompressionFormat, AnimationCompressionFormat)
 		PROP_ENUM2(RotationCompressionFormat, AnimationCompressionFormat)
 		PROP_ENUM2(ScaleCompressionFormat, AnimationCompressionFormat)
-		PROP_ARRAY(CompressedTrackOffsets, int)
+		PROP_ARRAY_POD(CompressedTrackOffsets, int)
 		PROP_STRUC(CompressedScaleOffsets, FCompressedOffsetData)
 		PROP_ARRAY(TrackToSkeletonMapTable, FTrackToSkeletonMap)
 		PROP_ARRAY(CompressedTrackToSkeletonMapTable, FTrackToSkeletonMap)

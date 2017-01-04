@@ -186,6 +186,8 @@ void DumpProps(FArchive &Ar, const UStruct *Struct)
 		{
 			TypeName = "component";	//???
 		}
+		else if (IS(UInterfaceProperty))
+			TypeName = "interface";	//???
 #if MKVSDC
 		else if (IS(UNativeTypeProperty))
 		{
