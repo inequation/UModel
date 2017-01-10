@@ -640,7 +640,16 @@ public:
 		unguard;
 	} */
 
-	virtual size_t GetElementSize() override { return sizeof(char*); }
+	virtual size_t GetElementSize() override
+	{
+		FName oo;
+		return sizeof(UObject*)
+			+ sizeof(int32)	// FName::Index
+#if UNREAL3 || UNREAL4
+			+ sizeof(int32)	// FName::ExtraIndex	// FIXME: This actually depends on the game we're currently loading...
+#endif
+			;
+	}
 };
 
 
