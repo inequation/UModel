@@ -31,6 +31,8 @@ END_CLASS_TABLE
 	Display class
 -----------------------------------------------------------------------------*/
 
+bool GDumpCPP = false;
+
 void DumpProps(FArchive &Ar, const UStruct *Struct);
 
 static const char indentBase[] = "\t\t\t\t\t\t\t\t";
@@ -65,24 +67,36 @@ static void Dump(FArchive &Ar, const UStruct *Struct)
 
 static void DumpProperty(FArchive &Ar, const UProperty *Prop, const char *Type, const char *StructName)
 {
-	Ar.Printf("%svar", fieldIndent);
-	if (Prop->PropertyFlags & 1)
+	if (!GDumpCPP)
 	{
-		Ar.Printf("(");
-		if (strcmp(*Prop->Category, "None") != 0 && strcmp(*Prop->Category, StructName) != 0)
-			Ar.Printf("%s", *Prop->Category);
-		Ar.Printf(")");
+		Ar.Printf("%svar", fieldIndent);
+		if (Prop->PropertyFlags & 1)
+		{
+			Ar.Printf("(");
+			if (strcmp(*Prop->Category, "None") != 0 && strcmp(*Prop->Category, StructName) != 0)
+				Ar.Printf("%s", *Prop->Category);
+			Ar.Printf(")");
+		}
 	}
-#define FLAG(v,name)	if (Prop->PropertyFlags & v) Ar.Printf(" "#name);
-	FLAG(0x0001000, native    )
-	FLAG(0x0000002, const     )
-	FLAG(0x0020000, editconst )
-	FLAG(0x4000000, editinline)
-	FLAG(0x0002000, transient )		//?? sometimes may be "private"
-	FLAG(0x0800000, noexport  )
-	FLAG(0x0004000, config    )
+	if (GDumpCPP)
+	{
+#define FLAG(v,name)	if (Prop->PropertyFlags & v) Ar.Printf(#name" ");
+		FLAG(0x0000002, const     )
 #undef FLAG
-	Ar.Printf(" %s %s", Type, Prop->Name);
+	}
+	else
+	{
+#define FLAG(v,name)	if (Prop->PropertyFlags & v) Ar.Printf(" "#name);
+		FLAG(0x0001000, native    )
+		FLAG(0x0000002, const     )
+		FLAG(0x0020000, editconst )
+		FLAG(0x4000000, editinline)
+		FLAG(0x0002000, transient )		//?? sometimes may be "private"
+		FLAG(0x0800000, noexport  )
+		FLAG(0x0004000, config    )
+#undef FLAG
+	}
+	Ar.Printf("%s%s %s", GDumpCPP ? "" : " ", Type, Prop->Name);
 	if (Prop->ArrayDim > 1)
 		Ar.Printf("[%d]", Prop->ArrayDim);
 	Ar.Printf(";");
@@ -104,7 +118,6 @@ void DumpProps(FArchive &Ar, const UStruct *Struct)
 	{
 //		appPrintf("field: %s (%s)\n", F->Name, F->GetClassName());
 		Next = F->Next;
-		Ar.Printf("\n");
 		const char *ClassName = F->GetClassName();
 #define IS(Type)		strcmp(ClassName, #Type+1)==0
 #define CVT(Type)		const Type *Prop = static_cast<const Type*>(F);
@@ -112,12 +125,16 @@ void DumpProps(FArchive &Ar, const UStruct *Struct)
 			if (IS(Type))			\
 			{						\
 				CVT(Type);			\
+				Ar.Printf("\n");	\
 				Dump(Ar, Prop);		\
 				continue;			\
 			}
 
 		// special types
-		DUMP(UFunction);
+		if (!GDumpCPP)
+		{
+			DUMP(UFunction);
+		}
 		DUMP(UEnum);
 		DUMP(UConst);
 		DUMP(UStruct);
@@ -139,6 +156,7 @@ void DumpProps(FArchive &Ar, const UStruct *Struct)
 			if (!F)
 			{
 				appNotify("ArrayProperty %s.%s has no inner field", Struct->Name, Arr->Name);
+				Ar.Printf("\n");
 				DumpProperty(Ar, Arr, "array<unknown>", Struct->Name);
 				continue;
 			}
@@ -209,6 +227,7 @@ void DumpProps(FArchive &Ar, const UStruct *Struct)
 		else
 			appStrncpyz(FullType, TypeName, ARRAY_COUNT(FullType));
 		CVT(UProperty);
+		Ar.Printf("\n");
 		DumpProperty(Ar, Prop, FullType, Struct->Name);
 #undef IS
 #undef CVT
@@ -227,17 +246,17 @@ void DumpClass(const UClass *Class)
 {
 	//!! NOTE: UProperty going in correct format, other UField data in reverse format
 	char Filename[256];
-	appSprintf(ARRAY_ARG(Filename), "%s/%s.uc", Class->Package->Name, Class->Name);
+	appSprintf(ARRAY_ARG(Filename), "%s/%s.%s", Class->Package->Name, Class->Name, GDumpCPP ? "h" : "uc");
 	FFileWriter Ar(Filename);
-	Ar.Printf("class %s", Class->Name);
+	Ar.Printf("class %s%s", GDumpCPP ? (Class->IsA("Actor") ? "A" : "U") : "", Class->Name);
 	//?? note: import may be failed when placed in a different package - so, SuperField may be NULL
 	//?? when parsing Engine class, derived from Core.Object
 	//?? other places with same issue marked as "#IMPORTS#"
 	if (Class->SuperField)
-		Ar.Printf(" extends %s", Class->SuperField->Name);
-	Ar.Printf(";\n");
+		Ar.Printf(" %s %s%s", GDumpCPP ? ": public" : "extends", GDumpCPP ? (Class->SuperField->IsA("Actor") ? "A" : "U") : "", Class->SuperField->Name);
+	Ar.Printf(GDumpCPP ? "\n{" : ";\n");
 	DumpProps(Ar, Class);
-	Ar.Printf("\n");
+	Ar.Printf(GDumpCPP ? "\n};\n" : "\n");
 }
 
 bool DumpTextBuffer(const UTextBuffer *Text)
@@ -279,6 +298,7 @@ int main(int argc, char **argv)
 				  "Options:\n"
 				  "    -text              use TextBuffer object instead of decompilation\n"
 				  "    -lzo|lzx|zlib      force compression method for fully-compressed packages\n"
+				  "    -cpp               dump using C++ instead of UnrealScript\n"
 				  "\n"
 				  "For details and updates please visit " HOMEPAGE "\n"
 		);
@@ -301,6 +321,8 @@ int main(int argc, char **argv)
 				GForceCompMethod = COMPRESS_ZLIB;
 			else if (!stricmp(opt, "lzx"))
 				GForceCompMethod = COMPRESS_LZX;
+			else if (!stricmp(opt, "cpp"))
+				GDumpCPP = true;
 			else
 				goto help;
 		}
