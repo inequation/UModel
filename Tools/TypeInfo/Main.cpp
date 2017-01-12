@@ -34,8 +34,9 @@ END_CLASS_TABLE
 bool GDumpCPP = false;
 
 void DumpProps(FArchive &Ar, const UStruct *Struct);
+void DumpHelperTypesForCPP(FArchive &Ar, const UStruct *Struct);
 
-static const char indentBase[] = "\t\t\t\t\t\t\t\t";
+static const char indentBase[] = "\t\t\t\t\t\t\t\t\t\t\t";
 static const char *fieldIndent = indentBase + ARRAY_COUNT(indentBase) - 1;
 
 static void Dump(FArchive &Ar, const UFunction *Func)
@@ -53,13 +54,17 @@ static void Dump(FArchive &Ar, const UEnum *Enum)
 
 static void Dump(FArchive &Ar, const UConst *Const)
 {
-	Ar.Printf("%sconst %s = %s;", fieldIndent, Const->Name, *Const->Value);
+	Ar.Printf(GDumpCPP ? "%sstatic constexpr auto %s = %s;" : "%sconst %s = %s;", fieldIndent, Const->Name, *Const->Value);
 }
 
 static void Dump(FArchive &Ar, const UStruct *Struct)
 {
-	Ar.Printf("%sstruct %s\n{", fieldIndent, Struct->Name);
+	Ar.Printf("%sstruct %s\n%s{", fieldIndent, GDumpCPP ? va("F%s", Struct->Name) : Struct->Name, fieldIndent);
 	fieldIndent--;
+	if (GDumpCPP)
+	{
+		DumpHelperTypesForCPP(Ar, Struct);
+	}
 	DumpProps(Ar, Struct);
 	fieldIndent++;
 	Ar.Printf("\n%s};\n", fieldIndent);
@@ -77,15 +82,7 @@ static void DumpProperty(FArchive &Ar, const UProperty *Prop, const char *Type, 
 				Ar.Printf("%s", *Prop->Category);
 			Ar.Printf(")");
 		}
-	}
-	if (GDumpCPP)
-	{
-#define FLAG(v,name)	if (Prop->PropertyFlags & v) Ar.Printf(#name" ");
-		FLAG(0x0000002, const     )
-#undef FLAG
-	}
-	else
-	{
+
 #define FLAG(v,name)	if (Prop->PropertyFlags & v) Ar.Printf(" "#name);
 		FLAG(0x0001000, native    )
 		FLAG(0x0000002, const     )
@@ -94,6 +91,13 @@ static void DumpProperty(FArchive &Ar, const UProperty *Prop, const char *Type, 
 		FLAG(0x0002000, transient )		//?? sometimes may be "private"
 		FLAG(0x0800000, noexport  )
 		FLAG(0x0004000, config    )
+#undef FLAG
+	}
+	else
+	{
+		Ar.Printf("%s", fieldIndent);
+#define FLAG(v,name)	if (Prop->PropertyFlags & v) Ar.Printf(#name" ");
+		FLAG(0x0000002, const     )
 #undef FLAG
 	}
 	Ar.Printf("%s%s %s", GDumpCPP ? "" : " ", Type, Prop->Name);
@@ -109,17 +113,18 @@ static void DumpProperty(FArchive &Ar, const UProperty *Prop, const char *Type, 
 	}
 }
 
-void DumpProps(FArchive &Ar, const UStruct *Struct)
+void DumpHelperTypesForCPP(FArchive &Ar, const UStruct *Struct)
 {
-	guard(DumpProps);
+	guard(DumpHelperTypesForCPP);
+	
+	assert(GDumpCPP);
 
 	const UField *Next = NULL;
 	for (const UField *F = Struct->Children; F; F = Next)
 	{
-//		appPrintf("field: %s (%s)\n", F->Name, F->GetClassName());
 		Next = F->Next;
 		const char *ClassName = F->GetClassName();
-#define IS(Type)		strcmp(ClassName, #Type+1)==0
+#define IS(Type)		(strcmp(ClassName, #Type+1)==0)
 #define CVT(Type)		const Type *Prop = static_cast<const Type*>(F);
 #define DUMP(Type)					\
 			if (IS(Type))			\
@@ -130,17 +135,63 @@ void DumpProps(FArchive &Ar, const UStruct *Struct)
 				continue;			\
 			}
 
-		// special types
-		if (!GDumpCPP)
+		// Actually, don't care about functions.
+		//DUMP(UFunction)
+		if (IS(UFunction)) continue;
+		else DUMP(UEnum)
+#if UNREAL3
+		else DUMP(UScriptStruct)	// as UStruct
+#endif
+		else DUMP(UStruct)
+		else continue;
+#undef IS
+#undef CVT
+#undef DUMP
+	}
+
+	unguardf("Struct=%s", Struct->Name);
+}
+
+void DumpProps(FArchive &Ar, const UStruct *Struct)
+{
+	guard(DumpProps);
+
+	const UField *Next = NULL;
+	for (const UField *F = Struct->Children; F; F = Next)
+	{
+//		appPrintf("field: %s (%s)\n", F->Name, F->GetClassName());
+		Next = F->Next;
+		const char *ClassName = F->GetClassName();
+#define IS(Type)		(strcmp(ClassName, #Type+1)==0)
+#define CVT(Type)		const Type *Prop = static_cast<const Type*>(F);
+#define DUMP(Type)					\
+			if (IS(Type))			\
+			{						\
+				CVT(Type);			\
+				Ar.Printf("\n");	\
+				Dump(Ar, Prop);		\
+				continue;			\
+			}
+
+		// special types; they are dumped outside for C++
+		if (GDumpCPP)
+		{
+			if (IS(UFunction) || IS(UEnum) || IS(UStruct))
+			{
+				continue;
+			}
+		}
+		else
 		{
 			DUMP(UFunction);
-		}
-		DUMP(UEnum);
-		DUMP(UConst);
-		DUMP(UStruct);
+			DUMP(UEnum);
+			DUMP(UStruct);
 #if UNREAL3
-		DUMP(UScriptStruct);	// as UStruct
+			DUMP(UScriptStruct);	// as UStruct
 #endif
+		}
+		DUMP(UConst);
+
 		// properties
 		if (!F->IsA("Property"))
 		{
@@ -157,7 +208,7 @@ void DumpProps(FArchive &Ar, const UStruct *Struct)
 			{
 				appNotify("ArrayProperty %s.%s has no inner field", Struct->Name, Arr->Name);
 				Ar.Printf("\n");
-				DumpProperty(Ar, Arr, "array<unknown>", Struct->Name);
+				DumpProperty(Ar, Arr, GDumpCPP ? "TArray<unknown>" : "array<unknown>", Struct->Name);
 				continue;
 			}
 			else
@@ -172,7 +223,7 @@ void DumpProps(FArchive &Ar, const UStruct *Struct)
 		}
 		else if (IS(UMapProperty))
 		{
-			TypeName = "map<>";		//!! implement
+			TypeName = GDumpCPP ? "TMap<>" : "map<>";		//!! implement
 		}
 		else if (IS(UIntProperty))
 			TypeName = "int";
@@ -183,29 +234,50 @@ void DumpProps(FArchive &Ar, const UStruct *Struct)
 		else if (IS(UObjectProperty))
 		{
 			CVT(UObjectProperty);
-			TypeName = (Prop->PropertyClass) ? Prop->PropertyClass->Name : "object";	//?? #IMPORTS#
+			if (GDumpCPP)
+			{
+				FName HashedTypeName;
+				HashedTypeName = (Prop->PropertyClass) ? va("%s%s*", Prop->PropertyClass->IsA("Actor") ? "A" : "U", Prop->PropertyClass->Name) : "UObject*";	//?? #IMPORTS#
+				TypeName = *HashedTypeName;
+			}
+			else
+			{
+				TypeName = (Prop->PropertyClass) ? Prop->PropertyClass->Name : "object";	//?? #IMPORTS#
+			}
 		}
 		else if (IS(UClassProperty))
-			TypeName = "class";
+			TypeName = GDumpCPP ? "UClass*" : "class";
 		else if (IS(UNameProperty))
-			TypeName = "name";
+			TypeName = GDumpCPP ? "FName" : "name";
 		else if (IS(UStrProperty))
-			TypeName = "string";
+			TypeName = GDumpCPP ? "FString" : "string";
 		else if (IS(UPointerProperty))
-			TypeName = "pointer";
+			TypeName = GDumpCPP ? "void*" : "pointer";
 		else if (IS(UArrayProperty))
 			appError("nested arrays for field %s", F->Name);
 		else if (IS(UStructProperty))
 		{
 			CVT(UStructProperty);
-			TypeName = (Prop->Struct) ? Prop->Struct->Name : "struct";	//?? #IMPORTS#
+			if (GDumpCPP)
+			{
+				// If there is no struct, we are in trouble, as structs are inlined.
+				FName HashedTypeName;
+				HashedTypeName = (Prop->Struct) ? va("F%s", Prop->Struct->Name) : "void";	//?? #IMPORTS#
+				TypeName = *HashedTypeName;
+			}
+			else
+			{
+				TypeName = (Prop->Struct) ? Prop->Struct->Name : "struct";	//?? #IMPORTS#
+			}
 		}
 		else if (IS(UComponentProperty))
 		{
-			TypeName = "component";	//???
+			TypeName = GDumpCPP ? (Ar.Engine() >= GAME_UE4 ? "UActorComponent*" : "UComponent*") : "component";	//???
 		}
 		else if (IS(UInterfaceProperty))
-			TypeName = "interface";	//???
+		{
+			TypeName = GDumpCPP ? (Ar.Engine() >= GAME_UE4 ? "UInterface*" : "UObject*") : "interface";	//???
+		}
 #if MKVSDC
 		else if (IS(UNativeTypeProperty))
 		{
@@ -223,12 +295,98 @@ void DumpProps(FArchive &Ar, const UStruct *Struct)
 		if (!TypeName) appError("Unknown type %s for field %s", ClassName, F->Name);
 		char FullType[256];
 		if (isArray)
-			appSprintf(ARRAY_ARG(FullType), "array<%s>", TypeName);
+			appSprintf(ARRAY_ARG(FullType), GDumpCPP ? "TArray<%s>" : "array<%s>", TypeName);
 		else
 			appStrncpyz(FullType, TypeName, ARRAY_COUNT(FullType));
 		CVT(UProperty);
 		Ar.Printf("\n");
 		DumpProperty(Ar, Prop, FullType, Struct->Name);
+#undef IS
+#undef CVT
+#undef DUMP
+	}
+
+	unguardf("Struct=%s", Struct->Name);
+}
+
+void DumpPropTableForCPP(FArchive& Ar, const UStruct* Struct)
+{
+	guard(DumpPropTableForCPP);
+
+	assert(GDumpCPP);
+
+	const UField *Next = NULL;
+	for (const UField *F = Struct->Children; F; F = Next)
+	{
+		Next = F->Next;
+		const char *ClassName = F->GetClassName();
+#define IS(Type)		(strcmp(ClassName, #Type+1)==0)
+#define CVT(Type)		const Type *Prop = static_cast<const Type*>(F);
+#define DUMP(Type, MacroFmt)										\
+			if (IS(Type))											\
+			{														\
+				Ar.Printf("\n%s" MacroFmt, fieldIndent, F->Name);	\
+				continue;											\
+			}
+
+		// We don't care about non-props.
+		if (!F->IsA("Property"))
+		{
+			continue;
+		}
+
+		if (IS(UArrayProperty))
+		{
+			const UArrayProperty *Arr = static_cast<const UArrayProperty*>(F);
+			F  = Arr->Inner;
+			if (!F)
+			{
+				appNotify("ArrayProperty %s.%s has no inner field", Struct->Name, Arr->Name);
+				Ar.Printf("\n%sPROP_DROP(%s)\t// TODO", fieldIndent, Arr->Name);
+				continue;
+			}
+			else
+			{
+				Ar.Printf("\n%sPROP_DROP(%s)\t// TODO", fieldIndent, Arr->Name);	// TODO
+				continue;
+			}
+		}
+			 DUMP(UByteProperty, "PROP_ENUM(%s)")
+		else DUMP(UMapProperty, "PROP_DROP(%s)\t// TODO")	// TODO
+		else DUMP(UIntProperty, "PROP_INT(%s)")
+		else DUMP(UBoolProperty, "PROP_BOOL(%s)")
+		else DUMP(UFloatProperty, "PROP_FLOAT(%s)")
+		else DUMP(UObjectProperty, "PROP_OBJ(%s)")
+		else DUMP(UClassProperty, "PROP_OBJ(%s)")
+		else DUMP(UNameProperty, "PROP_NAME(%s)")
+		else DUMP(UStrProperty, "PROP_ARRAY(%s, char)")
+		else DUMP(UPointerProperty, "PROP_DROP(%s)\t// TODO")	// TODO
+		else DUMP(UComponentProperty, "PROP_OBJ(%s)")
+		else DUMP(UInterfaceProperty, "PROP_OBJ(%s)")
+		else if (IS(UArrayProperty))
+			appError("nested arrays for field %s", F->Name);
+		else if (IS(UStructProperty))
+		{
+			CVT(UStructProperty);
+			// If there is no struct, we are in trouble, as structs are inlined.
+			FName HashedTypeName;
+			HashedTypeName = (Prop->Struct) ? va("F%s", Prop->Struct->Name) : "void";	//?? #IMPORTS#
+			Ar.Printf("\n%s_PROP_BASE(%s, %s)", fieldIndent, Prop->Name, *HashedTypeName);
+		}
+#if MKVSDC
+		else if (IS(UNativeTypeProperty))
+		{
+			CVT(UNativeTypeProperty);
+			Ar.Printf("\n%s_PROP_BASE(%s, %s)", fieldIndent, Prop->Name, Prop->TypeName);
+		}
+#endif // MKVSDC
+#if UNREAL3
+		else if (IS(UDelegateProperty))
+		{
+			Ar.Printf("\n%sPROP_DROP(%s)\t// TODO", fieldIndent, F->Name, "delegate");	//???
+		}
+#endif
+		else appError("Unknown type %s for field %s", ClassName, F->Name);
 #undef IS
 #undef CVT
 #undef DUMP
@@ -248,14 +406,46 @@ void DumpClass(const UClass *Class)
 	char Filename[256];
 	appSprintf(ARRAY_ARG(Filename), "%s/%s.%s", Class->Package->Name, Class->Name, GDumpCPP ? "h" : "uc");
 	FFileWriter Ar(Filename);
+	if (GDumpCPP)
+	{
+		DumpHelperTypesForCPP(Ar, Class);
+		Ar.Printf("\n");
+	}
 	Ar.Printf("class %s%s", GDumpCPP ? (Class->IsA("Actor") ? "A" : "U") : "", Class->Name);
 	//?? note: import may be failed when placed in a different package - so, SuperField may be NULL
 	//?? when parsing Engine class, derived from Core.Object
 	//?? other places with same issue marked as "#IMPORTS#"
 	if (Class->SuperField)
 		Ar.Printf(" %s %s%s", GDumpCPP ? ": public" : "extends", GDumpCPP ? (Class->SuperField->IsA("Actor") ? "A" : "U") : "", Class->SuperField->Name);
-	Ar.Printf(GDumpCPP ? "\n{" : ";\n");
+	Ar.Printf(GDumpCPP ? "\n{\n" : ";\n");
+	if (GDumpCPP)
+	{
+		--fieldIndent;
+		const char* ThisNativeName = appStrdup(va("%c%s", Class->IsA("Actor") ? 'A' : 'U', Class->Name));
+		const char* SuperNativeName = appStrdup(va("%c%s", (Class->SuperField && Class->SuperField->IsA("Actor")) ? 'A' : 'U', Class->SuperField ? Class->SuperField->Name : "Object"));
+		Ar.Printf("%sDECLARE_CLASS(%s, %s);\npublic:\n"
+			"%s%s::%s()\n"
+				"%s\t: %s()\n"
+			"%s{",
+			fieldIndent, ThisNativeName, SuperNativeName,
+			fieldIndent, ThisNativeName, ThisNativeName,
+			fieldIndent, SuperNativeName,
+			fieldIndent);
+		--fieldIndent;
+		DumpDefaults(Ar, Class);
+		++fieldIndent;
+		Ar.Printf("\n%s}\n", fieldIndent);
+	}
 	DumpProps(Ar, Class);
+	if (GDumpCPP)
+	{
+		Ar.Printf("\n\n%sBEGIN_PROP_TABLE", fieldIndent);
+		--fieldIndent;
+		DumpPropTableForCPP(Ar, Class);
+		++fieldIndent;
+		Ar.Printf("\n%sEND_PROP_TABLE", fieldIndent);
+		++fieldIndent;
+	}
 	Ar.Printf(GDumpCPP ? "\n};\n" : "\n");
 }
 
