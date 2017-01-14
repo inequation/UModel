@@ -371,7 +371,22 @@ void DumpPropTableForCPP(FArchive& Ar, const UStruct* Struct)
 			// If there is no struct, we are in trouble, as structs are inlined.
 			FName HashedTypeName;
 			HashedTypeName = (Prop->Struct) ? va("F%s", Prop->Struct->Name) : "void";	//?? #IMPORTS#
-			Ar.Printf("\n%s_PROP_BASE(%s, %s)", fieldIndent, Prop->Name, *HashedTypeName);
+			if (0 == stricmp(Prop->Struct->Name, "Vector"))
+			{
+				Ar.Printf("\n%sPROP_VECTOR(%s)", fieldIndent, Prop->Name);
+			}
+			else if (0 == stricmp(Prop->Struct->Name, "Rotator"))
+			{
+				Ar.Printf("\n%sPROP_ROTATOR(%s)", fieldIndent, Prop->Name);
+			}
+			else if (0 == stricmp(Prop->Struct->Name, "Color"))
+			{
+				Ar.Printf("\n%sPROP_COLOR(%s)", fieldIndent, Prop->Name);
+			}
+			else
+			{
+				Ar.Printf("\n%sPROP_STRUC(%s, %s)", fieldIndent, Prop->Name, *HashedTypeName);
+			}
 		}
 #if MKVSDC
 		else if (IS(UNativeTypeProperty))
