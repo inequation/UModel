@@ -129,7 +129,7 @@ struct CTypeInfo
 	bool IsA(const char *TypeName) const;
 	const CPropInfo *FindProperty(const char *Name) const;
 	void SerializeProps(FArchive &Ar, void *ObjectData) const;
-	void DumpProps(void *Data) const;
+	void DumpProps(const void *Data) const;
 	static void RemapProp(const char *Class, const char *OldName, const char *NewName);
 };
 

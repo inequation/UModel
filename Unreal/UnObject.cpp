@@ -1599,7 +1599,7 @@ struct CPropDump
 };
 
 
-static void CollectProps(const CTypeInfo *Type, void *Data, CPropDump &Dump)
+static void CollectProps(const CTypeInfo *Type, const void *Data, CPropDump &Dump)
 {
 	for (/* empty */; Type; Type = Type->Parent)
 	{
@@ -1785,7 +1785,7 @@ static void PrintProps(const CPropDump &Dump, int Indent)
 }
 
 
-void CTypeInfo::DumpProps(void *Data) const
+void CTypeInfo::DumpProps(const void *Data) const
 {
 	guard(CTypeInfo::DumpProps);
 	CPropDump Dump;
