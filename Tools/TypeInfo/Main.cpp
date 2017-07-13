@@ -218,9 +218,79 @@ void DumpProps(FArchive &Ar, const UStruct *Struct)
 	unguardf("Struct=%s", Struct->Name);
 }
 
+static void DumpDefaultsRecursive(FArchive& Ar, const CTypeInfo* TypeInfo, byte* ThisDefaults, size_t ThisDefaultsSize, byte* SuperDefaults, size_t SuperDefaultsSize)
+{
+	guard(DumpDefaultsRecursive);
+
+	if (TypeInfo->Parent)
+	{
+		DumpDefaultsRecursive(Ar, TypeInfo->Parent, ThisDefaults, ThisDefaultsSize, SuperDefaults, SuperDefaultsSize);
+	}
+
+	/*for (int i = 0; i < TypeInfo->NumProps; ++i)
+	{
+		const CPropInfo& Prop = TypeInfo->Props[i];
+
+		bool bDifferentFromSuper = true;
+		if (SuperDefaults)
+		{
+			bDifferentFromSuper = 0 != memcmp(ThisDefaults + Prop.Offset, SuperDefaults + Prop.Offset, Prop.Count * TypeInfo->DumpProps)
+		}
+	}*/
+
+	unguardf("TypeInfo=%s", TypeInfo->Name);
+}
+
 void DumpDefaults(FArchive& Ar, const UStruct* Struct)
 {
-	// TODO
+	guard(DumpDefaults);
+
+	const UStruct* SuperStruct = (UStruct*)Struct->SuperField;
+
+	size_t ThisDefaultsSize = 0, SuperDefaultsSize = 0;
+	const byte* ThisDefaults = Struct->GetDefaults(ThisDefaultsSize);
+	const byte* SuperDefaults = SuperStruct ? SuperStruct->GetDefaults(SuperDefaultsSize) : nullptr;
+	const CTypeInfo* ThisTypeInfo = Struct->GetDataTypeInfo();
+	if (ThisDefaults && ThisDefaultsSize > 0)
+	{
+		assert(!SuperDefaults || SuperDefaultsSize <= ThisDefaultsSize);
+
+		/*const CTypeInfo* SuperTypeInfo = SuperStruct ? SuperStruct->GetDataTypeInfo() : nullptr;
+
+		if (ThisTypeInfo->)
+
+		const UField *Next = NULL;
+		for (const UField *F = Struct->Children; F; F = Next)
+		{
+			Next = F->Next;
+			const char *ClassName = F->GetClassName();
+#define IS(Type)		(strcmp(ClassName, #Type+1)==0)
+#define CVT(Type)		const Type *Prop = static_cast<const Type*>(F);
+#define DUMP(Type)										\
+			if (IS(Type))											\
+			{														\
+				Ar.Printf("\n%s", fieldIndent, F->Name);	\
+				continue;											\
+			}
+
+			// We don't care about non-props.
+			if (!F->IsA("Property"))
+			{
+				continue;
+			}
+			else if (IS(UByteProperty))
+			{
+
+			}
+#undef IS
+#undef CVT
+#undef DUMP
+		}*/
+	}
+
+	ThisTypeInfo->DumpProps(ThisDefaults);
+
+	unguardf("Struct=%s", Struct->Name);
 }
 
 void DumpClass(const UClass *Class)

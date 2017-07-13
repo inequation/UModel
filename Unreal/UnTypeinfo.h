@@ -146,7 +146,7 @@ protected:
 	CTypeInfo*		DataTypeInfo;	// generated after serialization in Link()
 public:
 
-	FORCEINLINE const CTypeInfo* GetDataTypeInfo() { return DataTypeInfo; }
+	FORCEINLINE const CTypeInfo* GetDataTypeInfo() const { return DataTypeInfo; }
 #endif
 
 	virtual ~UStruct()
@@ -230,7 +230,7 @@ public:
 	}
 	
 	void Link();
-	virtual const byte* GetDefaults(size_t& OutSize) { assert(!"unimplemented GetDefaults()"); return nullptr; }
+	virtual const byte* GetDefaults(size_t& OutSize) const { assert(!"unimplemented GetDefaults()"); return nullptr; }
 #endif
 	void ConstructData(void* Mem)
 	{
@@ -274,7 +274,7 @@ public:
 		Package->CloseReader();
 	}
 
-	virtual const byte* GetDefaults(size_t& OutSize) { OutSize = StructDefaults.Num(); return StructDefaults.GetData(); }
+	virtual const byte* GetDefaults(size_t& OutSize) const { OutSize = StructDefaults.Num(); return StructDefaults.GetData(); }
 #endif
 
 	virtual void Serialize(FArchive &Ar)
@@ -418,11 +418,11 @@ public:
 		unguard;
 	}
 
-	virtual const byte* GetDefaults(size_t& OutSize)
+	virtual const byte* GetDefaults(size_t& OutSize) const
 	{
 		if (ClassDefaultObject)
 		{
-			OutSize = ClassDefaultObject->GetTypeinfo()->SizeOf;
+			OutSize = GetDataTypeInfo()->SizeOf;
 			return (byte*)ClassDefaultObject;
 		}
 		else
