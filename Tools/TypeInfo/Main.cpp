@@ -290,8 +290,11 @@ void DumpProps(FArchive &Ar, const UStruct *Struct)
 		{
 			TypeName = "delegate";	//???
 		}
+		else if (IS(UInterfaceProperty))
+		{
+			TypeName = "interface";	//???
+		}
 #endif
-		// other: UInterfaceProperty
 		if (!TypeName) appError("Unknown type %s for field %s", ClassName, F->Name);
 		char FullType[256];
 		if (isArray)
@@ -447,9 +450,9 @@ void DumpDefaults(FArchive& Ar, const UStruct* Struct)
 	{
 		assert(!SuperDefaults || SuperDefaultsSize <= ThisDefaultsSize);
 
-		/*const CTypeInfo* SuperTypeInfo = SuperStruct ? SuperStruct->GetDataTypeInfo() : nullptr;
+		const CTypeInfo* SuperTypeInfo = SuperStruct ? SuperStruct->GetDataTypeInfo() : nullptr;
 
-		if (ThisTypeInfo->)
+		//if (ThisTypeInfo->)
 
 		const UField *Next = NULL;
 		for (const UField *F = Struct->Children; F; F = Next)
@@ -477,10 +480,10 @@ void DumpDefaults(FArchive& Ar, const UStruct* Struct)
 #undef IS
 #undef CVT
 #undef DUMP
-		}*/
+		}
 	}
 
-	ThisTypeInfo->DumpProps(ThisDefaults);
+	ThisTypeInfo->DumpProps(Ar, ThisDefaults, SuperDefaults, SuperDefaults + SuperDefaultsSize);
 
 	unguardf("Struct=%s", Struct->Name);
 }
@@ -532,6 +535,9 @@ void DumpClass(const UClass *Class)
 		++fieldIndent;
 	}
 	Ar.Printf(GDumpCPP ? "\n};\n" : "\n");
+	Ar.Printf("defaultproperties\n{");
+	DumpDefaults(Ar, Class);
+	Ar.Printf("}\n");
 }
 
 bool DumpTextBuffer(const UTextBuffer *Text)

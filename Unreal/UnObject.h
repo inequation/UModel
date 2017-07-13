@@ -9,7 +9,7 @@
 
 // Comparing PropLevel with Super::PropLevel to detect whether we have property
 // table in current class or not
-#define DECLARE_BASE(Class,Base)				\
+#define DECLARE_BASE(IsClass,Class,Base)		\
 	public:										\
 		typedef Class	ThisClass;				\
 		typedef Base	Super;					\
@@ -22,7 +22,8 @@
 			if ((int)PropLevel != (int)Super::PropLevel) \
 				props = StaticGetProps(numProps); \
 			static const CTypeInfo type(		\
-				#Class,							\
+				IsClass,						\
+				#Class + 1,						\
 				Super::StaticGetTypeinfo(),		\
 				sizeof(ThisClass),				\
 				props, numProps,				\
@@ -32,7 +33,7 @@
 		}
 
 #define DECLARE_STRUCT(Class)					\
-		DECLARE_BASE(Class, CNullType)			\
+		DECLARE_BASE(false, Class, CNullType)	\
 		const CTypeInfo *GetTypeinfo() const	\
 		{										\
 			return StaticGetTypeinfo();			\
@@ -40,7 +41,7 @@
 
 // structure derived from another structure with typeinfo
 #define DECLARE_STRUCT2(Class,Base)				\
-		DECLARE_BASE(Class, Base)				\
+		DECLARE_BASE(false, Class, Base)		\
 		const CTypeInfo *GetTypeinfo() const	\
 		{										\
 			return StaticGetTypeinfo();			\
@@ -48,7 +49,7 @@
 
 //?? can replace virtual GetClassName() with GetTypeinfo()->Name
 #define DECLARE_CLASS(Class,Base)				\
-		DECLARE_BASE(Class, Base)				\
+		DECLARE_BASE(true, Class, Base)			\
 		virtual const CTypeInfo *GetTypeinfo() const \
 		{										\
 			return StaticGetTypeinfo();			\
@@ -66,6 +67,7 @@ struct CPropInfo
 	const char	   *TypeName;	// name of the field type
 	uint16			Offset;		// offset of this field from the class start
 	int16			Count;		// number of array items
+	size_t			SizeOf;		// size of the field type in bytes
 };
 
 
@@ -110,16 +112,18 @@ private:
 
 struct CTypeInfo
 {
+	bool			bIsClass;	// Is simply a struct if false.
 	const char		*Name;
 	const CTypeInfo *Parent;
-	int				SizeOf;
+	size_t			SizeOf;
 	const CPropInfo *Props;
 	int				NumProps;
 	CTypeConstructor Constructor;
 	// methods
-	FORCEINLINE CTypeInfo(const char *AName, const CTypeInfo *AParent, int DataSize,
+	FORCEINLINE CTypeInfo(const bool bInIsClass, const char *AName, const CTypeInfo *AParent, int DataSize,
 					 const CPropInfo *AProps, int PropCount, CTypeConstructor AConstructor)
-	:	Name(AName)
+	:	bIsClass(bInIsClass)
+	,	Name(AName)
 	,	Parent(AParent)
 	,	SizeOf(DataSize)
 	,	Props(AProps)
@@ -128,8 +132,8 @@ struct CTypeInfo
 	{}
 	bool IsA(const char *TypeName) const;
 	const CPropInfo *FindProperty(const char *Name) const;
-	void SerializeProps(FArchive &Ar, void *ObjectData) const;
-	void DumpProps(const void *Data) const;
+	void SerializeProps(FArchive &Ar, void *ObjectData, const void *ObjectDataEnd = NULL) const;
+	void DumpProps(FArchive& Ar, const void *Data, const void *DefaultData = NULL, const void *DefaultDataEnd = NULL) const;
 	static void RemapProp(const char *Class, const char *OldName, const char *NewName);
 };
 
@@ -151,12 +155,11 @@ struct CNullType
 };
 
 
-#define _PROP_BASE_POD(Field,Type)	{ #Field, #Type, FIELD2OFS(ThisClass, Field), sizeof(((ThisClass*)NULL)->Field) / sizeof(Type) },
-#define _PROP_BASE(Field,Type)		{ #Field, #Type + 1, FIELD2OFS(ThisClass, Field), sizeof(((ThisClass*)NULL)->Field) / sizeof(Type) },
-#define PROP_ARRAY_POD(Field,Type)	{ #Field, #Type, FIELD2OFS(ThisClass, Field), -1 },
-#define PROP_ARRAY(Field,Type)		{ #Field, #Type + 1, FIELD2OFS(ThisClass, Field), -1 },
-#define PROP_STRUC(Field,Type)		_PROP_BASE(Field, Type)
-#define PROP_DROP(Field)			{ #Field, NULL, 0, 0 },		// signal property, which should be dropped
+#define _PROP_BASE_EX(Field,Type,TypeStr)	{ #Field, TypeStr, FIELD2OFS(ThisClass, Field), sizeof(((ThisClass*)NULL)->Field) / sizeof(Type), sizeof(((ThisClass*)NULL)->Field) },
+#define _PROP_BASE(Field,Type)				_PROP_BASE_EX(Field,Type,#Type)
+#define PROP_ARRAY(Field,Type)				{ #Field, #Type, FIELD2OFS(ThisClass, Field), -1, sizeof(((ThisClass*)NULL)->Field) },
+#define PROP_STRUC(Field,Type)				_PROP_BASE(Field, Type)
+#define PROP_DROP(Field)					{ #Field, NULL, 0, 0, 0 },		// signal property, which should be dropped
 
 
 // BEGIN_PROP_TABLE/END_PROP_TABLE declares property table inside class declaration
@@ -171,18 +174,17 @@ struct CNullType
 // PROP_BYTE for enumeration value, _PROP_BASE macro will set 'Count' field of
 // CPropInfo to 4 instead of 1 (enumeration values are serialized as byte, but
 // compiler report it as 4-byte field)
-#define PROP_ENUM(Field)		{ #Field, "byte",   FIELD2OFS(ThisClass, Field), 1 },
-#define PROP_ENUM2(Field,Type)	{ #Field, "#"#Type, FIELD2OFS(ThisClass, Field), 1 },
-#define PROP_BYTE(Field)		_PROP_BASE_POD(Field, byte     )
-#define PROP_INT(Field)			_PROP_BASE_POD(Field, int      )
-#define PROP_BOOL(Field)		_PROP_BASE_POD(Field, bool     )
-#define PROP_FLOAT(Field)		_PROP_BASE_POD(Field, float    )
-#define PROP_NAME(Field)		_PROP_BASE(Field, FName    )
-#define PROP_OBJ(Field)			_PROP_BASE(Field, UObject* )
-// structure types; note: structure names corresponds to F<StrucName> C++ struc
-#define PROP_VECTOR(Field)		_PROP_BASE(Field, FVector  )
-#define PROP_ROTATOR(Field)		_PROP_BASE(Field, FRotator )
-#define PROP_COLOR(Field)		_PROP_BASE(Field, FColor   )
+#define PROP_ENUM(Field)		{ #Field, "byte",   FIELD2OFS(ThisClass, Field), 1, sizeof(((ThisClass*)NULL)->Field) },
+#define PROP_ENUM2(Field,Type)	{ #Field, "#"#Type, FIELD2OFS(ThisClass, Field), 1, sizeof(((ThisClass*)NULL)->Field) },
+#define PROP_BYTE(Field)		_PROP_BASE(Field, byte     )
+#define PROP_INT(Field)			_PROP_BASE(Field, int      )
+#define PROP_BOOL(Field)		_PROP_BASE(Field, bool     )
+#define PROP_FLOAT(Field)		_PROP_BASE(Field, float    )
+#define PROP_NAME(Field)		_PROP_BASE_EX(Field, FName,		"Name"		)
+#define PROP_OBJ(Field)			_PROP_BASE_EX(Field, UObject*,	"Object"	)
+#define PROP_VECTOR(Field)		_PROP_BASE_EX(Field, FVector,	"Vector"	)
+#define PROP_ROTATOR(Field)		_PROP_BASE_EX(Field, FRotator,	"Rotator"	)
+#define PROP_COLOR(Field)		_PROP_BASE_EX(Field, FColor,	"Color"		)
 
 #define END_PROP_TABLE							\
 		};										\
@@ -208,6 +210,7 @@ static const CTypeInfo* Class##_StaticGetTypeinfo() \
 #define END_PROP_TABLE_EXTERNAL					\
 	};											\
 	static const CTypeInfo type(				\
+		false,									\
 		ClassName,								\
 		NULL,									\
 		sizeof(ThisClass),						\
@@ -379,7 +382,7 @@ FORCEINLINE const char* EnumToName(T Value)
 
 class UObject
 {
-	DECLARE_BASE(UObject, CNullType)
+	DECLARE_BASE(true, UObject, CNullType)
 
 public:
 	// internal storage
@@ -406,7 +409,7 @@ public:
 	}
 	inline const char *GetClassName() const
 	{
-		return GetTypeinfo()->Name + 1;
+		return GetTypeinfo()->Name;
 	}
 	const char *GetRealClassName() const;		// class name from the package export table
 	const char* GetPackageName() const;
