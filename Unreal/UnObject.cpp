@@ -200,7 +200,7 @@ static bool SerializeStruc(FArchive &Ar, void *Data, int Index, const char *Stru
 {
 	guard(SerializeStruc);
 #define STRUC_TYPE(name)				\
-	if (!strcmp(StrucName, #name))		\
+	if (!strcmp(StrucName, #name + 1))		\
 	{									\
 		Ar << ((name*)Data)[Index];		\
 		return true;					\
@@ -817,7 +817,7 @@ no_net_index:
 }
 
 
-void CTypeInfo::SerializeProps(FArchive &Ar, void *ObjectData) const
+void CTypeInfo::SerializeProps(FArchive &Ar, void *ObjectData, const void* ObjectDataEnd) const
 {
 	guard(CTypeInfo::SerializeProps);
 
@@ -1020,6 +1020,10 @@ void CTypeInfo::SerializeProps(FArchive &Ar, void *ObjectData) const
 			// serialize other properties
 			continue;
 		}
+
+		// We can't just use Tag.DataSize because for struct properties, this will include that struct's tags etc.
+		assert(!ObjectDataEnd || (byte*)ObjectData + Prop->Offset + Prop->SizeOf <= ObjectDataEnd);
+
 		// verify array index
 		if (Tag.Type == NAME_ArrayProperty)
 		{
@@ -1129,11 +1133,10 @@ void CTypeInfo::SerializeProps(FArchive &Ar, void *ObjectData) const
 				else SIMPLE_ARRAY_TYPE(byte)
 				else SIMPLE_ARRAY_TYPE(float)
 				else SIMPLE_ARRAY_TYPE(UObject*)
-				else SIMPLE_ARRAY_TYPE(FName)
-				else SIMPLE_ARRAY_TYPE(FVector)
-				else SIMPLE_ARRAY_TYPE(FQuat)
-				else SIMPLE_ARRAY_TYPE_EX(String, FString)
 				else SIMPLE_ARRAY_TYPE_EX(Name, FName)
+				else SIMPLE_ARRAY_TYPE_EX(Vector, FVector)
+				else SIMPLE_ARRAY_TYPE_EX(Quat, FQuat)
+				else SIMPLE_ARRAY_TYPE_EX(String, FString)
 #undef SIMPLE_ARRAY_TYPE
 				else
 				{
@@ -1297,9 +1300,17 @@ void CTypeInfo::SerializeProps(FArchive &Ar, void *ObjectData) const
 			break;
 
 		case NAME_FixedArrayProperty:
-			//appError("FixedArray property not implemented");
-			appPrintf("WARNING: FixedArray property not implemented, skipping");
-			Ar.Seek(StopPos);
+#if UNREAL3
+			if (Ar.Engine() >= GAME_UE3)
+			{
+				// This is in fact an InterfaceProperty.
+				CHECK_TYPE("Object");
+				Ar << PROP(UObject*);
+				PROP_DBG("%s", PROP(UObject*) ? PROP(UObject*)->Name : "Null");
+			}
+			else
+#endif
+			appError("FixedArray property not implemented");
 			break;
 
 		// reserved, but not implemented in unreal:
@@ -1462,7 +1473,7 @@ UObject *CreateClass(const char *Name)
 bool CTypeInfo::IsA(const char *TypeName) const
 {
 	for (const CTypeInfo *Type = this; Type; Type = Type->Parent)
-		if (!strcmp(TypeName, Type->Name + 1))
+		if (!strcmp(TypeName, Type->Name))
 			return true;
 	return false;
 }
@@ -1503,10 +1514,10 @@ const CPropInfo *CTypeInfo::FindProperty(const char *Name) const
 }
 
 
-static void PrintIndent(int Value)
+static void PrintIndent(FArchive& Ar, int Value)
 {
 	for (int i = 0; i < Value; i++)
-		appPrintf("    ");
+		Ar.Printf("\t");
 }
 
 
@@ -1550,8 +1561,118 @@ struct CPropDump
 	}
 };
 
+struct FPropValueProcessor
+{
+	const CPropInfo *Prop;
+	int ArrayIndex;
+	const void *ValuePtr;
+	const void *DefaultPtr;
+	CPropDump *Dump;
 
-static void CollectProps(const CTypeInfo *Type, const void *Data, CPropDump &Dump)
+	template <typename T>
+	bool PropValue(const char* Format)
+	{
+		if (!strcmp(Prop->TypeName, GetTypeNameStr<T>()))
+		{
+			T Zero((T)0);
+			if (!DefaultPtr)
+			{
+				DefaultPtr = &Zero;
+			}
+			PropValueEx<T>(Format);
+			return true;
+		}
+		return false;
+	}
+
+	template <>
+	bool PropValue<FName>(const char* Format)
+	{
+		if (!strcmp(Prop->TypeName, GetTypeNameStr<FName>()))
+		{
+			FName Zero;
+			if (!DefaultPtr)
+			{
+				DefaultPtr = &Zero;
+			}
+			PropValueEx<FName>(Format);
+			return true;
+		}
+		return false;
+	}
+
+	template <>
+	bool PropValue<FString>(const char* Format)
+	{
+		if (!strcmp(Prop->TypeName, GetTypeNameStr<FString>()))
+		{
+			FString Zero;
+			if (!DefaultPtr)
+			{
+				DefaultPtr = &Zero;
+			}
+			PropValueEx<FString>(Format);
+			return true;
+		}
+		return false;
+	}
+
+	template <>
+	bool PropValue<UObject*>(const char* Format)
+	{
+		if (!strcmp(Prop->TypeName, GetTypeNameStr<UObject*>()))
+		{
+			UObject* NullPointer = nullptr;
+			if (!DefaultPtr)
+			{
+				DefaultPtr = &NullPointer;
+			}
+			const UObject** Value = ((const UObject**)ValuePtr) + ArrayIndex;
+			const UObject** Default = ((const UObject**)DefaultPtr) + ArrayIndex;
+			if (*Value != *Default)
+			{
+				if (*Value)
+				{
+					char ObjName[256];
+					(*Value)->GetFullName(ARRAY_ARG(ObjName));
+					Dump->PrintValue("%s'%s'", (*Value)->GetClassName(), ObjName);
+				}
+				else
+				{
+					Dump->PrintValue("None");
+				}
+			}
+			return true;
+		}
+		return false;
+	}
+
+private:
+	template <typename T>
+	void PrintDumpValue(const char* Format, const T& Value)
+	{
+		Dump->PrintValue(Format, Value);
+	}
+
+	template <>
+	void PrintDumpValue<bool>(const char* Format, const bool& Value)
+	{
+		Dump->PrintValue("%s", Value ? "true" : "false");
+	}
+
+	template <typename T>
+	void PropValueEx(const char* Format)
+	{
+		const T* Value = ((const T*)ValuePtr) + ArrayIndex;
+		const T* Default = ((const T*)DefaultPtr) + ArrayIndex;
+		if (*Value != *Default)
+		{
+			PrintDumpValue(Format, *Value);
+		}
+	}
+};
+
+static void CollectProps(const CTypeInfo *Type, const void *Data, const void *DefaultsDataBegin, const void *DefaultsDataEnd, CPropDump &Dump)
 {
 	for (/* empty */; Type; Type = Type->Parent)
 	{
@@ -1578,8 +1699,16 @@ static void CollectProps(const CTypeInfo *Type, const void *Data, CPropDump &Dum
 			PD->PrintName("%s", Prop->Name);
 
 			// value
-
+			if (DefaultsDataBegin >= DefaultsDataEnd || (!!DefaultsDataBegin != !!DefaultsDataEnd))
+			{
+				DefaultsDataEnd = DefaultsDataBegin = nullptr;
+			}
 			byte *value = (byte*)Data + Prop->Offset;
+			byte *DefaultValue = (byte*)DefaultsDataBegin + Prop->Offset;
+			if (DefaultValue >= DefaultsDataEnd)
+			{
+				DefaultValue = nullptr;
+			}
 			int PropCount = Prop->Count;
 
 			bool IsArray = (PropCount > 1) || (PropCount == -1);
@@ -1588,6 +1717,7 @@ static void CollectProps(const CTypeInfo *Type, const void *Data, CPropDump &Dum
 				// TArray<> value
 				FArray *Arr = (FArray*)value;
 				value     = (byte*)Arr->GetData();
+				DefaultValue = DefaultValue ? (byte*)((FArray*)DefaultValue)->GetData() : nullptr;
 				PropCount = Arr->Num();
 			}
 
@@ -1618,58 +1748,54 @@ static void CollectProps(const CTypeInfo *Type, const void *Data, CPropDump &Dum
 					PD2->IsArrayItem = true;
 				}
 
-				// note: ArrayIndex is used inside PROP macro
-
-#define IS(name)  strcmp(Prop->TypeName, #name) == 0
-#define PROCESS(type, format, value) \
-				if (IS(type)) { PD2->PrintValue(format, value); }
-				PROCESS(byte,     "%d", PROP(byte));
-				PROCESS(int,      "%d", PROP(int));
-				PROCESS(bool,     "%s", PROP(bool) ? "true" : "false");
-				PROCESS(float,    "%g", PROP(float));
-#if 1
-				if (IS(UObject*))
-				{
-					UObject *obj = PROP(UObject*);
-					if (obj)
-					{
-						char ObjName[256];
-						obj->GetFullName(ARRAY_ARG(ObjName));
-						PD2->PrintValue("%s'%s'", obj->GetClassName(), ObjName);
-					}
-					else
-						PD2->PrintValue("None");
-				}
-#else
-				PROCESS(UObject*, "%s", PROP(UObject*) ? PROP(UObject*)->Name : "Null");
-#endif
-				PROCESS(FName,    "%s", *PROP(FName));
+				FPropValueProcessor Process = { Prop, ArrayIndex, value, DefaultValue, PD2 };
+				if (!Process.PropValue<byte>("%d"))
+				if (!Process.PropValue<int>("%d"))
+				if (!Process.PropValue<bool>("%s"))
+				if (!Process.PropValue<float>("%g"))
+				if (!Process.PropValue<FName>("%s"))
+				if (!Process.PropValue<FString>("%s"))
+				if (!Process.PropValue<UObject*>("%s'%s'"))
 				if (Prop->TypeName[0] == '#')
 				{
 					// enum value
 					const char *v = EnumToName(Prop->TypeName+1, *value);		// skip enum marker
 					PD2->PrintValue("%s (%d)", v ? v : "<unknown>", *value);
 				}
-				if (IsStruc)
+				else if (IsStruc)
 				{
 					// this is a structure type
-					CollectProps(StrucType, value + ArrayIndex * StrucType->SizeOf, *PD2);
+					const void *SubDefaultValue = DefaultValue ? (DefaultValue + ArrayIndex * StrucType->SizeOf) : nullptr;
+					CollectProps(StrucType, value + ArrayIndex * StrucType->SizeOf, SubDefaultValue, DefaultsDataEnd, *PD2);
+				}
+				else
+				{
+					appPrintf("WARNING: Failed to dump property %s %s\n", Prop->TypeName, Prop->Name);
+				}
+				if (!PD2->Value[0])
+				{
+					PD2 = IsArray ? PD : &Dump;
+					PD2->Nested.RemoveAt(PD2->Nested.Num() - 1, 1);
 				}
 			} // ArrayIndex loop
+			if (IsArray && PD->Nested.Num() == 0)
+			{
+				Dump.Nested.RemoveAt(Dump.Nested.Num() - 1, 1);
+			}
 		} // PropIndex loop
 	} // Type->Parent loop
 }
 
 
-static void PrintProps(const CPropDump &Dump, int Indent)
+static void PrintProps(FArchive& Ar, const CPropDump &Dump, int Indent)
 {
-	PrintIndent(Indent);
+	PrintIndent(Ar, Indent);
 
 	int NumNestedProps = Dump.Nested.Num();
 	if (NumNestedProps)
 	{
 		// complex property
-		if (Dump.Name[0]) appPrintf("%s =", Dump.Name);	// root CPropDump will not have a name
+		if (Dump.Name[0]) Ar.Printf("%s=", Dump.Name);	// root CPropDump will not have a name
 
 		bool IsSimple = true;
 		int TotalLen = 0;
@@ -1697,52 +1823,54 @@ static void PrintProps(const CPropDump &Dump, int Indent)
 		if (IsSimple)
 		{
 			// single-line value display
-			appPrintf(" { ");
+			Ar.Printf(" { ");
 			for (i = 0; i < NumNestedProps; i++)
 			{
-				if (i) appPrintf(", ");
+				if (i) Ar.Printf(", ");
 				const CPropDump &Prop = Dump.Nested[i];
+				if (!Prop.Value[0])
+					continue;
 				if (Prop.IsArrayItem)
-					appPrintf("%s", Prop.Value);
+					Ar.Printf("%s", Prop.Value);
 				else
-					appPrintf("%s=%s", Prop.Name, Prop.Value);
+					Ar.Printf("%s=%s", Prop.Name, Prop.Value);
 			}
-			appPrintf(" }\n");
+			Ar.Printf(" }\n");
 		}
 		else
 		{
 			// complex value display
-			appPrintf("\n");
+			Ar.Printf("\n");
 			if (Indent > 0)
 			{
-				PrintIndent(Indent);
-				appPrintf("{\n");
+				PrintIndent(Ar, Indent);
+				Ar.Printf("{\n");
 			}
 
 			for (i = 0; i < NumNestedProps; i++)
-				PrintProps(Dump.Nested[i], Indent+1);
+				PrintProps(Ar, Dump.Nested[i], Indent+1);
 
 			if (Indent > 0)
 			{
-				PrintIndent(Indent);
-				appPrintf("}\n");
+				PrintIndent(Ar, Indent);
+				Ar.Printf("}\n");
 			}
 		}
 	}
 	else
 	{
 		// single property
-		if (Dump.Name[0]) appPrintf("%s = %s\n", Dump.Name, Dump.Value);
+		if (Dump.Name[0] && Dump.Value[0]) Ar.Printf("%s=%s\n", Dump.Name, Dump.Value);
 	}
 }
 
 
-void CTypeInfo::DumpProps(const void *Data) const
+void CTypeInfo::DumpProps(FArchive& Ar, const void *Data, const void *DefaultData, const void *DefaultDataEnd) const
 {
 	guard(CTypeInfo::DumpProps);
 	CPropDump Dump;
-	CollectProps(this, Data, Dump);
-	PrintProps(Dump, 0);
+	CollectProps(this, Data, DefaultData, DefaultDataEnd, Dump);
+	PrintProps(Ar, Dump, 0);
 	unguard;
 }
 
@@ -1835,7 +1963,7 @@ void UStruct::Link()
 		}
 	}
 
-	DataTypeInfo = new CTypeInfo(Name, SuperTypeInfo, SuperTypeInfo ? SuperTypeInfo->SizeOf : 0, new CPropInfo[PropertyCount], PropertyCount, this);
+	DataTypeInfo = new CTypeInfo(false, Name, SuperTypeInfo, SuperTypeInfo ? SuperTypeInfo->SizeOf : 0, new CPropInfo[PropertyCount], PropertyCount, this);
 	int PropIndex = 0;
 	for (UField* Field = Children; Field; Field = Field->Next)
 	{
@@ -1870,18 +1998,22 @@ void UStruct::Link()
 			else F(RotatorProperty, Rotator)	\
 			else F(StrProperty, String)	\
 			else F(ComponentProperty, Object)
-/*#if UNREAL3
-			F(DelegateProperty, UObject*)		// FIXME
-			F(InterfaceProperty, UObject*)		// FIXME
-#endif
-#if UNREAL4
-			F(AttributeProperty, UObject*)		// FIXME
-			F(AssetObjectProperty, FString)		// FIXME
-			F(AssetSubclassProperty, FString)	// FIXME
-#endif*/
+#define ENUMERATE_PROP_TYPES_UNREAL3()	\
+			else F(DelegateProperty, Object)	\
+			else F(InterfaceProperty, Object)
+#define ENUMERATE_PROP_TYPES_UNREAL4()	\
+			else F(AttributeProperty, Object)	\
+			else F(AssetObjectProperty, FString)	\
+			else F(AssetSubclassProperty, FString)
 
 #define F(Name, NameStr)	if (Prop->IsA(#Name)) { PropInfo.TypeName = #NameStr; }
 			ENUMERATE_PROP_TYPES()
+#if UNREAL3
+			ENUMERATE_PROP_TYPES_UNREAL3()
+#endif
+#if UNREAL4
+			ENUMERATE_PROP_TYPES_UNREAL4()
+#endif
 #undef F
 			else if (Prop->IsA("ArrayProperty"))
 			{
@@ -1920,7 +2052,8 @@ void UStruct::Link()
 			{
 				PropInfo.TypeName = Field->GetClassName();
 			}
-			DataTypeInfo->SizeOf += (size_t)Align(max(1, Prop->ArrayDim) * Prop->GetElementSize(), DEFAULT_ALIGNMENT);
+			PropInfo.SizeOf = (size_t)Align(max(1, Prop->ArrayDim) * Prop->GetElementSize(), DEFAULT_ALIGNMENT);
+			DataTypeInfo->SizeOf += PropInfo.SizeOf;
 			++PropIndex;
 		}
 	}

@@ -347,7 +347,7 @@ FORCEINLINE void* operator new(size_t /*size*/, void* ptr)
 #endif
 
 
-#define DEFAULT_ALIGNMENT		8
+#define DEFAULT_ALIGNMENT		16
 #define MEM_CHUNK_SIZE			16384
 
 class CMemoryChain

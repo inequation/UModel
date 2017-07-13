@@ -269,7 +269,7 @@ public:
 		Package->SetupReader(PackageIndex);
 		Package->Seek64(DeferredLoadingPos);
 		UObject::GLoadingObj = this;
-		DataTypeInfo->SerializeProps(*Package, StructDefaults.GetData());
+		DataTypeInfo->SerializeProps(*Package, StructDefaults.GetData(), StructDefaults.GetData() + StructDefaults.Num());
 		UObject::GLoadingObj = nullptr;
 		Package->CloseReader();
 	}
@@ -537,7 +537,13 @@ public:
 		unguard;
 	}
 
-	virtual size_t GetElementSize() override { return 1; }
+	virtual size_t GetElementSize() override {
+#if UNREAL3 || UNREAL4
+		return sizeof(FName);
+#else
+		return 1;
+#endif
+	}
 };
 
 
@@ -815,6 +821,22 @@ class UPointerProperty : public UProperty
 	virtual size_t GetElementSize() override { return sizeof(void*); }
 };
 
+template <typename T> inline const char *GetTypeNameStr(void) { assert(!"Should never reach here"); return nullptr; }
+
+#define DEFINE_INLINE_GETTYPENAME_T(T)	\
+	template <> inline const char *GetTypeNameStr<T>(void) { return #T; }
+#define DEFINE_INLINE_GETTYPENAME_T_NATIVESTRUCT(T)	\
+	template <> inline const char *GetTypeNameStr<T>(void) { return #T + 1; }
+DEFINE_INLINE_GETTYPENAME_T(byte)
+DEFINE_INLINE_GETTYPENAME_T(int)
+DEFINE_INLINE_GETTYPENAME_T(float)
+DEFINE_INLINE_GETTYPENAME_T(bool)
+DEFINE_INLINE_GETTYPENAME_T_NATIVESTRUCT(FName)
+DEFINE_INLINE_GETTYPENAME_T_NATIVESTRUCT(FString)
+DEFINE_INLINE_GETTYPENAME_T_NATIVESTRUCT(FVector)
+DEFINE_INLINE_GETTYPENAME_T_NATIVESTRUCT(FRotator)
+DEFINE_INLINE_GETTYPENAME_T_NATIVESTRUCT(FQuat)
+template <> inline const char *GetTypeNameStr<UObject*>(void) { return "Object"; }
 
 #define REGISTER_TYPEINFO_CLASSES		\
 	REGISTER_CLASS(UClass)				\
