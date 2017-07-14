@@ -1709,11 +1709,23 @@ private:
 	}
 
 	template <typename T>
+	bool Equal(const T& A, const T& B)
+	{
+		return A == B;
+	}
+
+	template <>
+	bool Equal<FString>(const FString& A, const FString& B)
+	{
+		return 0 == strcmp(*A, *B);
+	}
+
+	template <typename T>
 	void PropValueEx(const char* Format)
 	{
 		const T* Value = ((const T*)ValuePtr) + ArrayIndex;
 		const T* Default = ((const T*)DefaultPtr) + ArrayIndex;
-		if (*Value != *Default)
+		if (!Equal(*Value, *Default))
 		{
 			PrintDumpValue(Format, *Value);
 		}

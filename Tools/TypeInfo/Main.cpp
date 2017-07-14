@@ -272,11 +272,11 @@ void DumpProps(FArchive &Ar, const UStruct *Struct)
 		}
 		else if (IS(UComponentProperty))
 		{
-			TypeName = GDumpCPP ? (Ar.Engine() >= GAME_UE4 ? "UActorComponent*" : "UComponent*") : "component";	//???
+			TypeName = GDumpCPP ? (Ar.Engine() >= GAME_UE4_BASE ? "UActorComponent*" : "UComponent*") : "component";	//???
 		}
 		else if (IS(UInterfaceProperty))
 		{
-			TypeName = GDumpCPP ? (Ar.Engine() >= GAME_UE4 ? "UInterface*" : "UObject*") : "interface";	//???
+			TypeName = GDumpCPP ? (Ar.Engine() >= GAME_UE4_BASE ? "UInterface*" : "UObject*") : "interface";	//???
 		}
 #if MKVSDC
 		else if (IS(UNativeTypeProperty))
@@ -701,4 +701,10 @@ int main(int argc, char **argv)
 	}
 #endif
 	return 0;
+}
+
+int UE4UnversionedPackage(int verMin, int verMax)
+{
+	appError("Unversioned UE4 packages are not supported. Please restart UModel and select UE4 version in range %d-%d using UI or command line.", verMin, verMax);
+	return -1;
 }
